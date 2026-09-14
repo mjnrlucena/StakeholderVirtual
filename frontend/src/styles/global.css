@@ -1,0 +1,126 @@
+@import "tailwindcss";
+@import "@fontsource/poppins/300.css";
+@import "@fontsource/poppins/400.css";
+@import "@fontsource/poppins/500.css";
+@import "@fontsource/poppins/600.css";
+@import "@fontsource/poppins/700.css";
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: "Poppins", sans-serif;
+}
+
+/*
+  Tokens de cor. Tema claro é o padrão (aplicado direto no :root).
+  Tema escuro é ativado adicionando a classe "dark" na tag <html>
+  (feito pelo useThemeStore / ThemeProvider).
+*/
+:root {
+  --background: #fafafa;
+  --title: #0c92f2;
+  --subtitle: #63758f;
+  --border-color: #c8cfd8;
+  --outline: #cbdbec;
+  --icons: #8a98ab;
+
+  --btn-background: #0d93f2;
+  --btn-background-alt: #fafafa;
+  --btn-hover-background-alt: #dce3ee;
+  --btn-text: #fafafa;
+  --btn-text-alt: #8795a8;
+
+  --input-placeholder: #8a98ab;
+  --input-background: #ffffff;
+
+  --card-background: #ffffff;
+  --card-title: #324259;
+  --card-subtitle: #324259;
+  --card-extra: #8a98ab;
+  --card-border: #e1e8f0;
+
+  --bubble-user-bg: #0d93f2;
+  --bubble-user-text: #fafafa;
+  --bubble-assistant-bg: #ffffff;
+  --bubble-assistant-text: #324259;
+
+  --divider: #e1e8f0;
+  --extra: #8a98ab;
+  --danger: #eb5757;
+}
+
+.dark {
+  --background: #0a101c;
+  --title: #fafafa;
+  --subtitle: #cad4e0;
+  --border-color: #63758f;
+  --outline: #2f3d50;
+  --icons: #8f97a6;
+
+  --btn-background: #0d93f2;
+  --btn-background-alt: #0d1528;
+  --btn-hover-background-alt: #1b202c;
+  --btn-text: #fafafa;
+  --btn-text-alt: #fafafa;
+
+  --input-placeholder: #63758f;
+  --input-background: #1d293d;
+
+  --card-background: #1d293d;
+  --card-title: #ffffff;
+  --card-subtitle: #cbd5e1;
+  --card-extra: #6e767d;
+  --card-border: #2f3d50;
+
+  --bubble-user-bg: #0d93f2;
+  --bubble-user-text: #fafafa;
+  --bubble-assistant-bg: #1d293d;
+  --bubble-assistant-text: #f1f5f9;
+
+  --divider: #314057;
+  --extra: #fafafa;
+  --danger: #f2867e;
+}
+
+body {
+  background-color: var(--background);
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+@layer components {
+  .app-title {
+    @apply text-[var(--title)] text-2xl font-semibold tracking-wide;
+  }
+
+  .app-subtitle {
+    @apply text-[var(--subtitle)] text-sm;
+  }
+
+  .app-card {
+    @apply bg-[var(--card-background)] border border-[var(--card-border)] rounded-2xl shadow-sm;
+  }
+
+  .app-divider {
+    @apply bg-[var(--divider)];
+  }
+
+  .btn-primary {
+    @apply cursor-pointer bg-[var(--btn-background)] text-[var(--btn-text)] font-medium rounded-full shadow-sm outline-0 border-0  hover:bg-[#0486e4] disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply cursor-pointer bg-[var(--btn-background-alt)] text-[var(--btn-text-alt)] border border-[var(--border-color)] rounded-full  hover:bg-[var(--btn-hover-background-alt)] disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .input-base {
+    @apply w-full rounded-xl text-[15px] text-[var(--card-title)] placeholder-[var(--input-placeholder)] bg-[var(--input-background)] border border-[var(--border-color)] outline-0 focus:outline-2 focus:outline-[var(--outline)];
+  }
+}
