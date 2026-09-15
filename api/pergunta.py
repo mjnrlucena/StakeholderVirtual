@@ -59,4 +59,8 @@ def pergunta():
         session["historico"] = historico
 
     data_hora = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+<<<<<<< HEAD
     return jsonify({"resposta": resposta, "data_hora": data_hora})
+=======
+    return jsonify({"resposta": resposta, "data_hora": data_hora})
+>>>>>>> 11dffdb (feat: update API endpoints and configurations)

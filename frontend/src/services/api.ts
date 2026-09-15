@@ -2,7 +2,7 @@ import axios from "axios";
 import type { PerguntaResponse } from "@/types/chat";
 
 /**
- * Em desenvolvimento, o Vite faz proxy de "/pergunta" para o Flask local
+ * Em desenvolvimento, o Vite faz proxy de "/api/pergunta" para o Flask local
  * (ver vite.config.ts), então baseURL pode ficar vazia.
  * Em produção, o próprio backend serve o build do front e responde nessa
  * mesma origem — também não precisa de baseURL.
@@ -34,7 +34,11 @@ export async function enviarPergunta(
   pergunta: string,
 ): Promise<PerguntaResponse> {
   const body = new URLSearchParams({ pergunta });
+<<<<<<< HEAD
   const { data } = await api.post<PerguntaResponse>(ENDPOINT, body);
+=======
+  const { data } = await api.post<PerguntaResponse>("/api/pergunta", body);
+>>>>>>> 11dffdb (feat: update API endpoints and configurations)
   return data;
 }
 
@@ -44,6 +48,10 @@ export async function enviarPergunta(
  */
 export async function solicitarFeedback(): Promise<PerguntaResponse> {
   const body = new URLSearchParams({ pergunta: "sair" });
+<<<<<<< HEAD
   const { data } = await api.post<PerguntaResponse>(ENDPOINT, body);
+=======
+  const { data } = await api.post<PerguntaResponse>("/api/pergunta", body);
+>>>>>>> 11dffdb (feat: update API endpoints and configurations)
   return data;
 }
