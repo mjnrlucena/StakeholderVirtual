@@ -1,11 +1,6 @@
 """
 Função serverless da Vercel para o endpoint /api/pergunta.
 
-Reaproveita a lógica de negócio original (chatbot.py e process_pdf.py,
-na raiz do repositório) sem alterar nenhum dos dois. Este arquivo é
-usado apenas no deploy novo na Vercel — main.py continua servindo o
-deploy antigo no Render, sem nenhuma relação com este.
-
 Mesma lógica de sessão do main.py original: a sessão do Flask é um
 cookie assinado no navegador (não fica em memória no servidor), então
 funciona normalmente entre chamadas de uma função serverless.

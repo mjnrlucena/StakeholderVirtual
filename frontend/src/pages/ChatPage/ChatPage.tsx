@@ -15,7 +15,7 @@ export function ChatPage() {
 
   const { mutate: perguntar, isPending } = useMutation({
     mutationFn: enviarPergunta,
-    onSuccess: (data, pergunta) => {
+    onSuccess: (data: { resposta: any; data_hora: any; }, pergunta: string) => {
       const isFeedback = pergunta.trim().toLowerCase() === "sair";
       const assistantMessage: ChatMessage = {
         id: novoId(),
