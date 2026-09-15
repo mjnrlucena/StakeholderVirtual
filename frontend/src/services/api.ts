@@ -34,11 +34,7 @@ export async function enviarPergunta(
   pergunta: string,
 ): Promise<PerguntaResponse> {
   const body = new URLSearchParams({ pergunta });
-<<<<<<< HEAD
-  const { data } = await api.post<PerguntaResponse>(ENDPOINT, body);
-=======
   const { data } = await api.post<PerguntaResponse>("/api/pergunta", body);
->>>>>>> 11dffdb (feat: update API endpoints and configurations)
   return data;
 }
 
@@ -48,10 +44,6 @@ export async function enviarPergunta(
  */
 export async function solicitarFeedback(): Promise<PerguntaResponse> {
   const body = new URLSearchParams({ pergunta: "sair" });
-<<<<<<< HEAD
-  const { data } = await api.post<PerguntaResponse>(ENDPOINT, body);
-=======
   const { data } = await api.post<PerguntaResponse>("/api/pergunta", body);
->>>>>>> 11dffdb (feat: update API endpoints and configurations)
   return data;
 }
