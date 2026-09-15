@@ -15,10 +15,11 @@ export function ChatPage() {
 
   const { mutate: perguntar, isPending } = useMutation({
     mutationFn: enviarPergunta,
-    onSuccess: (data) => {
+    onSuccess: (data, pergunta) => {
+      const isFeedback = pergunta.trim().toLowerCase() === "sair";
       const assistantMessage: ChatMessage = {
         id: novoId(),
-        role: "assistant",
+        role: isFeedback ? "feedback" : "assistant",
         content: data.resposta,
         dataHora: data.data_hora,
       };
@@ -47,12 +48,20 @@ export function ChatPage() {
     perguntar(pergunta);
   }
 
+  function handleFeedback() {
+    handleSend("sair");
+  }
+
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col">
-      <div className="app-card my-4 flex flex-1 flex-col overflow-hidden">
+    <div className="relative h-full">
+      <div className="h-full overflow-y-auto pt-16 pb-36">
         <ChatWindow messages={messages} isSending={isPending} />
-        <ChatInput onSend={handleSend} disabled={isPending} />
       </div>
+      <ChatInput
+        onSend={handleSend}
+        onFeedback={handleFeedback}
+        disabled={isPending}
+      />
     </div>
   );
 }

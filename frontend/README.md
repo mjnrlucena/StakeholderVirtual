@@ -11,7 +11,10 @@ verdade, tanto em desenvolvimento quanto em produção.
 - Zustand (`store/useChatStore.ts`, `store/useThemeStore.ts`)
 - TanStack React Query (`QueryClientProvider` em `main.tsx`) + Axios
 - Tailwind CSS (v4), com tema claro/escuro em `src/styles/global.css`
-  (claro é o padrão)
+  (claro é o padrão). Visual inspirado no ChatGPT: sem header tradicional
+  (só uma barra fixa e minimalista com ícones), mensagens do assistente
+  em texto corrido (sem balão) e composer fixo no rodapé. Fonte é a
+  padrão do sistema (sem webfont customizada).
 
 ## Como rodar em desenvolvimento
 

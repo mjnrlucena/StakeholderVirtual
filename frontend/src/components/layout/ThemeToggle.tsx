@@ -10,9 +10,10 @@ export function ThemeToggle() {
       type="button"
       onClick={toggleTheme}
       title={theme === "light" ? "Ativar tema escuro" : "Ativar tema claro"}
-      className="btn-secondary flex items-center justify-center h-9 w-9 shrink-0"
+      aria-label="Alternar tema"
+      className="icon-btn"
     >
-      {theme === "light" ? <Moon size={16} /> : <Sun size={16} />}
+      {theme === "light" ? <Moon size={17} /> : <Sun size={17} />}
     </button>
   );
 }

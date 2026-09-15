@@ -1,4 +1,4 @@
-import { MessageSquarePlus } from "lucide-react";
+import { SquarePen } from "lucide-react";
 import { useChatStore } from "@/store/useChatStore";
 
 export function NewChatButton() {
@@ -8,10 +8,11 @@ export function NewChatButton() {
     <button
       type="button"
       onClick={resetChat}
-      className="btn-secondary flex items-center gap-2 px-4 py-2 text-sm"
+      title="Novo chat"
+      aria-label="Novo chat"
+      className="icon-btn"
     >
-      <MessageSquarePlus size={18} />
-      Novo chat
+      <SquarePen size={18} />
     </button>
   );
 }
