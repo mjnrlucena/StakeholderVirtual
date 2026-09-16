@@ -37,3 +37,7 @@ export async function solicitarFeedback(): Promise<PerguntaResponse> {
   const { data } = await api.post<PerguntaResponse>("/api/pergunta", body);
   return data;
 }
+
+export async function iniciarNovaConversa(): Promise<void> {
+  await api.post("/api/nova-conversa");
+}

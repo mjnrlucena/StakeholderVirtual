@@ -1,11 +1,4 @@
-"""
-Função serverless da Vercel para o endpoint /api/pergunta.
-
-Mesma lógica de sessão do main.py original: a sessão do Flask é um
-cookie assinado no navegador (não fica em memória no servidor), então
-funciona normalmente entre chamadas de uma função serverless.
-"""
-
+import os
 import random
 import sys
 from datetime import datetime
@@ -24,17 +17,21 @@ from process_pdf import extrair_texto_pdf  # noqa: E402
 app = Flask(__name__)
 app.secret_key = "um_segredo_aleatorio_para_sessoes"  # necessário para usar session
 
-# Lista de PDFs disponíveis (mesmos arquivos da raiz do repositório)
-arquivos_pdf = ["requisitos.pdf", "requisitos2.pdf", "requisitos3.pdf"]
+# Lista de PDFs disponíveis — a pasta pdfs/ fica na RAIZ do repositório,
+# não dentro de api/, por isso usamos ROOT_DIR (não o diretório deste arquivo).
+PDF_DIR = ROOT_DIR / "pdfs"
+
+arquivos_pdf = [
+    arquivo
+    for arquivo in os.listdir(PDF_DIR)
+    if arquivo.lower().endswith(".pdf")
+]
 
 
 def carregar_contexto():
-    # Se já tem um PDF escolhido na sessão, mantém o mesmo
     if "caminho_pdf" not in session:
         session["caminho_pdf"] = random.choice(arquivos_pdf)
-        # Caminho absoluto: o sistema de arquivos da função é somente
-        # leitura, mas ler os PDFs incluídos no deploy funciona normalmente.
-        caminho_absoluto = str(ROOT_DIR / session["caminho_pdf"])
+        caminho_absoluto = str(PDF_DIR / session["caminho_pdf"])
         session["contexto"] = extrair_texto_pdf(caminho_absoluto)
     return session["contexto"]
 

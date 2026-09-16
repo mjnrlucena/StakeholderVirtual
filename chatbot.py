@@ -1,15 +1,14 @@
-import openai
-
 import os
 from dotenv import load_dotenv
+from openai import OpenAI
 
 load_dotenv()
 
 # Configuração da API Key
-openai.api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 def gerar_resposta(pergunta, contexto):
-    response = openai.chat.completions.create(
+    response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
     {
@@ -38,7 +37,7 @@ def gerar_resposta(pergunta, contexto):
 
 
 def gerar_feedback(conversa):
-    response = openai.chat.completions.create(
+    response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
             {
