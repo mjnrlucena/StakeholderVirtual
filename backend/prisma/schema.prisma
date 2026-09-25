@@ -1,0 +1,103 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+  SUPERADMIN
+}
+
+enum MessageRole {
+  USER
+  STAKEHOLDER
+  FEEDBACK
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(USER)
+  createdAt    DateTime @default(now())
+
+  refreshTokens       RefreshToken[]
+  chats               Chat[]
+  unansweredQuestions UnansweredQuestion[]
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model Project {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  pdfPath     String // chave do arquivo dentro do bucket do Supabase Storage
+  reportText  String // texto extraído do PDF, cacheado para não reprocessar a cada pergunta
+  createdAt   DateTime @default(now())
+
+  chats               Chat[]
+  unansweredQuestions UnansweredQuestion[]
+}
+
+// Um único chat "ativo" por usuário + projeto. "Reiniciar" apaga as
+// mensagens deste chat em vez de criar um novo registro.
+model Chat {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  messages Message[]
+
+  @@unique([userId, projectId])
+}
+
+model Message {
+  id        String      @id @default(uuid())
+  chatId    String
+  chat      Chat        @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  role      MessageRole
+  content   String
+  grounded  Boolean? // null para mensagens do usuário; true/false para respostas do stakeholder
+  createdAt DateTime    @default(now())
+
+  @@index([chatId])
+}
+
+// Perguntas em que o relatório não tinha informação suficiente (mesmo
+// quando o stakeholder respondeu "não sei" de forma honesta, sem inventar).
+model UnansweredQuestion {
+  id        String   @id @default(uuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  question  String
+  createdAt DateTime @default(now())
+
+  // Preenchidos quando o admin responde: a resposta é anexada ao
+  // reportText do projeto, virando contexto para perguntas futuras.
+  answer     String?
+  reviewed   Boolean  @default(false)
+  answeredAt DateTime?
+
+  @@index([projectId])
+}

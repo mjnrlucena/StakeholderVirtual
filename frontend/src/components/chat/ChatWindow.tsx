@@ -22,9 +22,7 @@ export function ChatWindow({ messages, isSending }: ChatWindowProps) {
           <Briefcase size={20} />
         </div>
         <p className="max-w-sm text-[15px] text-[var(--text-secondary)]">
-          Comece a entrevista perguntando ao stakeholder sobre o sistema que
-          ele precisa. Quando terminar, use o botão Feedback para receber a
-          avaliação da entrevista.
+          Comece a entrevista perguntando ao stakeholder sobre o sistema que ele precisa.
         </p>
       </div>
     );
@@ -41,9 +39,7 @@ export function ChatWindow({ messages, isSending }: ChatWindowProps) {
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--surface)] text-[var(--text-secondary)]">
             <Briefcase size={15} />
           </div>
-          <span className="text-[15px] text-[var(--text-secondary)]">
-            Digitando…
-          </span>
+          <span className="text-[15px] text-[var(--text-secondary)]">Digitando…</span>
         </div>
       )}
 

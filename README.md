@@ -1,87 +1,108 @@
-# Stakeholder Virtual — Frontend
+# StakeholderVirtual
 
-Front-end em Vite + React + TypeScript para o projeto StakeholderVirtual.
-Sempre fala com o backend Flask real (sem modo mock) — a IA é sempre a de
-verdade, tanto em desenvolvimento quanto em produção.
+Chatbot com IA que representa um stakeholder virtual (cliente) em entrevistas de
+levantamento de requisitos, para estudantes de Engenharia de Software praticarem.
+Cada projeto tem um relatório (PDF) diferente por trás da persona.
 
-## Stack
+## Arquitetura (3 serviços)
 
-- Vite + React + TypeScript
-- React Router (`RouterProvider` em `main.tsx`, `Outlet` em `App.tsx`)
-- Zustand (`store/useChatStore.ts`, `store/useThemeStore.ts`)
-- TanStack React Query (`QueryClientProvider` em `main.tsx`) + Axios
-- Tailwind CSS (v4), com tema claro/escuro em `src/styles/global.css`
-  (claro é o padrão). Visual inspirado no ChatGPT: sem header tradicional
-  (só uma barra fixa e minimalista com ícones), mensagens do assistente
-  em texto corrido (sem balão) e composer fixo no rodapé. Fonte é a
-  padrão do sistema (sem webfont customizada).
+```
+frontend/     React + Vite + TS         → deploy na Vercel
+backend/      Node + Express + Prisma   → deploy no Render
+adk-service/  Python + FastAPI + ADK    → deploy no Render (serviço separado)
+```
 
-## Como rodar em desenvolvimento
+- **frontend**: interface do estudante (login, seleção de projeto, chat) e do
+  admin (upload de PDFs, fila de perguntas não respondidas).
+- **backend**: dono da verdade — autenticação (JWT access+refresh em cookies
+  httpOnly), Postgres via Prisma (Supabase), upload de PDF pro Supabase
+  Storage, e quem chama o `adk-service` a cada pergunta.
+- **adk-service**: microserviço stateless com um pipeline de 2 agentes do
+  Google ADK — um responde como o stakeholder, outro verifica se a resposta
+  é fundamentada no relatório antes de deixar passar. Modelo usado:
+  OpenAI GPT-4o-mini via adaptador LiteLLM do ADK.
 
-O backend Flask (`python main.py`, na raiz do projeto) precisa estar
-rodando **também**, já que este front chama a IA de verdade.
+Banco de dados: PostgreSQL (Supabase). Armazenamento de PDFs: Supabase Storage.
 
+## Rodando localmente
+
+### 1. Banco local
+
+O `DATABASE_URL` do `.env.example` já vem pronto pra usar um Postgres local
+via Docker (não precisa de Supabase pra isso):
 ```bash
-# 1. Backend (na raiz do projeto)
-pip install -r requirements.txt
-cp .env.example .env        # preencha com sua OPENAI_API_KEY
-python main.py               # sobe em http://localhost:5000
+docker compose up -d postgres
+```
+Isso sobe um Postgres em `localhost:5432` com usuário/senha/banco
+`stakeholder`/`stakeholder`/`stakeholder_virtual`. Se preferir, pode usar
+qualquer outro Postgres local (instalado direto na máquina) — só ajustar a
+`DATABASE_URL`.
 
-# 2. Frontend (nesta pasta)
-cd frontend
-cp .env.example .env         # ajuste PORT/VITE_API_URL se precisar
+Os PDFs também podem ficar 100% locais em dev: com `STORAGE_DRIVER=local`
+(padrão do `.env.example`) eles são salvos em `backend/uploads/reports`,
+sem precisar de conta no Supabase. Em produção, troque para
+`STORAGE_DRIVER=supabase` e preencha `SUPABASE_URL`/`SUPABASE_SERVICE_KEY`
+com os dados de *Project Settings → API* do seu projeto Supabase, e crie um
+bucket privado chamado `reports` no Storage.
+
+### 2. backend/
+```bash
+cd backend
+cp .env.example .env   # preencha DATABASE_URL, JWT secrets, Supabase, etc.
 npm install
-npm run dev                  # sobe em http://localhost:5173 (ou o PORT do .env)
+npx prisma migrate dev --name init
+npm run dev             # http://localhost:4000
 ```
 
-Em dev, o Vite faz proxy de `/pergunta` para o Flask local
-(configurado em `vite.config.ts`, usando `VITE_API_URL` do `.env`), então
-não há problema de CORS.
-
-## Sobre a `OPENAI_API_KEY`
-
-Ela **nunca** deve entrar em nenhum `.env` desta pasta (`frontend/`).
-Qualquer variável aqui (prefixo `VITE_`) é embutida no JavaScript enviado
-ao navegador — ou seja, ficaria pública. A chave continua exclusivamente
-no `.env` da raiz do projeto, lido pelo `chatbot.py`.
-
-## Persistência e expiração do chat
-
-As mensagens ficam salvas em `localStorage` (chave
-`stakeholder-virtual:chat`), junto com o horário da última atividade.
-Se o usuário ficar mais de 30 minutos sem interagir, o chat é limpo
-automaticamente — isso é checado ao carregar a página, periodicamente
-(a cada 1 min) e quando a aba volta a ficar visível
-(`hooks/useChatExpirationWatcher.ts`).
-
-## Estrutura de pastas
-
-```
-src/
-  main.tsx              # QueryClientProvider + RouterProvider
-  App.tsx                # ThemeProvider + Outlet + Header
-  router/                 # definição das rotas
-  pages/
-    ChatPage/             # página principal, em uso
-    Feedback/              # reservada (quando o botão Sair ganhar função)
-    Login/                  # reservada (caso entre autenticação)
-    NotFound/
-  components/
-    chat/                  # ChatWindow, MessageBubble, ChatInput
-    layout/                # Header, NewChatButton, SairButton, ThemeToggle
-    theme/                  # ThemeProvider
-    ui/                     # reservada (botões/inputs genéricos futuros)
-  store/                   # Zustand: chat e tema
-  services/                # Axios + chamadas à API do Flask
-  utils/                   # persistência do chat no localStorage
-  hooks/                   # useChatExpirationWatcher
-  types/                   # tipos do chat
-  styles/                  # global.css (tokens de cor claro/escuro)
+### 3. adk-service/
+```bash
+cd adk-service
+cp .env.example .env    # preencha OPENAI_API_KEY
+python -m venv .venv 
+source .venv/Scripts/activate
+python -m pip install -r requirements.txt
+python main.py          # http://localhost:8000
 ```
 
-## Botões
+### 4. frontend/
+```bash
+cd frontend
+cp .env.example .env    # VITE_API_URL=http://localhost:4000
+npm install
+npm run dev              # http://localhost:5173
+```
 
-- **Novo chat**: reinicia a conversa (limpa mensagens e o localStorage).
-- **Sair**: existe na interface, mas está desabilitado por enquanto — no
-  futuro deve chamar `solicitarFeedback()` (já implementado em
-  `services/api.ts`) para pedir a avaliação pedagógica da entrevista.
+### 5. (opcional) popular projetos com os PDFs antigos
+Os PDFs que estavam em `/pdfs` (do protótipo antigo em Flask) podem ser
+importados como projetos de uma vez com:
+```bash
+cd backend && npm run seed
+```
+
+## Deploy
+
+- **Vercel**: aponta pra pasta `frontend/`. Variável de ambiente:
+  `VITE_API_URL` = URL pública do backend no Render.
+- **Render (backend)**: aponta pra pasta `backend/`. Build: `npm install &&
+  npm run build && npx prisma migrate deploy`. Start: `npm start`. Variáveis:
+  ver `backend/.env.example` (`COOKIE_SECURE=true` em produção).
+- **Render (adk-service)**: aponta pra pasta `adk-service/`. Build: `pip
+  install -r requirements.txt`. Start: `uvicorn main:app --host 0.0.0.0 --port
+  $PORT`. Variável: `OPENAI_API_KEY`.
+
+Como Vercel e Render são domínios diferentes, os cookies de sessão usam
+`SameSite=None; Secure` — por isso `COOKIE_SECURE=true` é obrigatório em
+produção, e o CORS do backend precisa do domínio exato da Vercel em
+`CORS_ORIGIN` (não puder usar `*` com `credentials: true`).
+
+## O que mudou em relação ao protótipo anterior
+
+- Antes: um único deploy na Vercel, Flask serverless, sessão em cookie sem
+  banco, PDF sorteado aleatoriamente, sem login.
+- Agora: 3 serviços separados, autenticação real (usuários comuns e admins),
+  chat persistido por usuário+projeto no Postgres, hub de admin para subir
+  novos relatórios e revisar perguntas sem fundamento no relatório, e um
+  agente verificador (ADK) que reduz alucinação do stakeholder.
+- **Não migrado**: a funcionalidade antiga de digitar "sair" para receber um
+  feedback pedagógico da entrevista não faz parte deste escopo — pode ser
+  reintroduzida depois como um terceiro agente no pipeline, se fizer sentido.

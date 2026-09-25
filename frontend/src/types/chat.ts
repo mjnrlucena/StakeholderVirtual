@@ -1,13 +1,20 @@
-export type MessageRole = "user" | "assistant" | "feedback";
+export type MessageRole = "USER" | "STAKEHOLDER" | "FEEDBACK";
 
 export interface ChatMessage {
   id: string;
   role: MessageRole;
   content: string;
-  dataHora: string;
+  grounded: boolean | null;
+  createdAt: string;
 }
 
-export interface PerguntaResponse {
+export interface ChatResponse {
+  chatId: string;
+  messages: ChatMessage[];
+}
+
+export interface SendMessageResponse {
   resposta: string;
-  data_hora: string;
+  grounded: boolean | null;
+  dataHora: string;
 }

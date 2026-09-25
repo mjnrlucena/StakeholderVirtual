@@ -1,20 +1,31 @@
 import { SquarePen } from "lucide-react";
-import { useChatStore } from "@/store/useChatStore";
-import { iniciarNovaConversa } from "@/services/api";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { reiniciarChat } from "@/services/api";
 
-export function NewChatButton() {
-  const resetChat = useChatStore((state) => state.resetChat);
+interface NewChatButtonProps {
+  projectId: string;
+}
 
-  async function handleNovoChat() {
-    await iniciarNovaConversa(); // limpa a sessão Flask e libera novo PDF
-    resetChat(); // limpa tela e localStorage
-  }
+/**
+ * Botão "novo chat" — agora escopado a um projeto: reinicia só o chat
+ * daquele projeto (apaga as mensagens), não afeta os demais.
+ */
+export function NewChatButton({ projectId }: NewChatButtonProps) {
+  const queryClient = useQueryClient();
+
+  const { mutate, isPending } = useMutation({
+    mutationFn: () => reiniciarChat(projectId),
+    onSuccess: () => {
+      queryClient.setQueryData(["chat", projectId], (old: any) => ({ ...old, messages: [] }));
+    },
+  });
 
   return (
     <button
       type="button"
-      onClick={handleNovoChat}
-      title="Novo chat"
+      onClick={() => mutate()}
+      disabled={isPending}
+      title="Novo chat (apaga as mensagens deste projeto)"
       aria-label="Novo chat"
       className="icon-btn"
     >

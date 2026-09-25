@@ -1,43 +1,137 @@
-import axios from "axios";
-import type { PerguntaResponse } from "@/types/chat";
+import axios, { AxiosError } from "axios";
+import type { AuthUser } from "@/types/auth";
+import type { ChatResponse, SendMessageResponse } from "@/types/chat";
+import type { AdminProject, Project, UnansweredQuestion } from "@/types/project";
 
 /**
- * Em desenvolvimento, o Vite faz proxy de "/api/pergunta" para o Flask local
- * (ver vite.config.ts), então baseURL pode ficar vazia.
- * Em produção, o próprio backend serve o build do front e responde nessa
- * mesma origem — também não precisa de baseURL.
- *
- * IMPORTANTE: nenhuma chave de API (OPENAI_API_KEY) circula por aqui.
- * A chamada real à OpenAI acontece só no backend (chatbot.py).
+ * Backend Node/Express, agora um serviço separado (Render). Autenticação
+ * é 100% via cookies httpOnly (accessToken/refreshToken) — por isso
+ * `withCredentials: true` é obrigatório em toda chamada.
  */
 export const api = axios.create({
-  baseURL: "",
-  headers: {
-    "Content-Type": "application/x-www-form-urlencoded",
-  },
+  baseURL: import.meta.env.VITE_API_URL,
+  withCredentials: true,
 });
 
-/**
- * Envia uma pergunta ao stakeholder virtual.
- */
+export async function adicionarAdmin(email: string) {
+  const { data } = await api.post("/admin/add-admin", { email });
+  return data;
+}
+
+// Refresh automático: se uma chamada vier 401, tenta renovar o access
+// token uma vez (via cookie de refresh) e repete a requisição original.
+// Evita deslogar o usuário só porque o access token (curto, 15min) expirou.
+let refreshPromise: Promise<void> | null = null;
+
+api.interceptors.response.use(
+  (response) => response,
+  async (error: AxiosError) => {
+    const original = error.config as (AxiosError["config"] & { _retried?: boolean }) | undefined;
+    const isAuthCall = original?.url?.includes("/auth/");
+
+    if (error.response?.status === 401 && original && !original._retried && !isAuthCall) {
+      original._retried = true;
+      try {
+        refreshPromise ??= api.post("/auth/refresh").then(() => undefined);
+        await refreshPromise;
+        refreshPromise = null;
+        return api.request(original);
+      } catch {
+        refreshPromise = null;
+      }
+    }
+
+    return Promise.reject(error);
+  },
+);
+
+// --- Auth ---------------------------------------------------------------
+
+export async function register(email: string, password: string): Promise<AuthUser> {
+  const { data } = await api.post<AuthUser>("/auth/register", { email, password });
+  return data;
+}
+
+export async function login(email: string, password: string): Promise<AuthUser> {
+  const { data } = await api.post<AuthUser>("/auth/login", { email, password });
+  return data;
+}
+
+export async function logout(): Promise<void> {
+  await api.post("/auth/logout");
+}
+
+export async function fetchMe(): Promise<AuthUser> {
+  const { data } = await api.get<AuthUser>("/auth/me");
+  return data;
+}
+
+// --- Projetos / Chat ------------------------------------------------------
+
+export async function listarProjetos(): Promise<Project[]> {
+  const { data } = await api.get<Project[]>("/projects");
+  return data;
+}
+
+export async function obterChat(projectId: string): Promise<ChatResponse> {
+  const { data } = await api.get<ChatResponse>(`/projects/${projectId}/chat`);
+  return data;
+}
+
 export async function enviarPergunta(
+  projectId: string,
   pergunta: string,
-): Promise<PerguntaResponse> {
-  const body = new URLSearchParams({ pergunta });
-  const { data } = await api.post<PerguntaResponse>("/api/pergunta", body);
+): Promise<SendMessageResponse> {
+  const { data } = await api.post<SendMessageResponse>(`/projects/${projectId}/chat/message`, {
+    pergunta,
+  });
   return data;
 }
 
-/**
- * Encerra a entrevista e pede o feedback pedagógico.
- * O backend usa a palavra "sair" como gatilho para essa análise.
- */
-export async function solicitarFeedback(): Promise<PerguntaResponse> {
-  const body = new URLSearchParams({ pergunta: "sair" });
-  const { data } = await api.post<PerguntaResponse>("/api/pergunta", body);
+export async function reiniciarChat(projectId: string): Promise<void> {
+  await api.post(`/projects/${projectId}/chat/reset`);
+}
+
+export async function solicitarFeedback(projectId: string): Promise<SendMessageResponse> {
+  const { data } = await api.post<SendMessageResponse>(`/projects/${projectId}/chat/feedback`);
   return data;
 }
 
-export async function iniciarNovaConversa(): Promise<void> {
-  await api.post("/api/nova-conversa");
+// --- Admin ---------------------------------------------------------------
+
+export async function listarProjetosAdmin(): Promise<AdminProject[]> {
+  const { data } = await api.get<AdminProject[]>("/admin/projects");
+  return data;
+}
+
+export async function criarProjeto(params: {
+  title: string;
+  description?: string;
+  pdf: File;
+}): Promise<{ id: string; title: string }> {
+  const form = new FormData();
+  form.append("title", params.title);
+  if (params.description) form.append("description", params.description);
+  form.append("pdf", params.pdf);
+
+  const { data } = await api.post<{ id: string; title: string }>("/admin/projects", form);
+  return data;
+}
+
+export async function listarPerguntasNaoRespondidas(): Promise<UnansweredQuestion[]> {
+  const { data } = await api.get<UnansweredQuestion[]>("/admin/unanswered-questions");
+  return data;
+}
+
+// Responder gera contexto: a resposta é anexada ao relatório do projeto.
+export async function responderPergunta(id: string, answer: string): Promise<UnansweredQuestion> {
+  const { data } = await api.patch<UnansweredQuestion>(`/admin/unanswered-questions/${id}/answer`, {
+    answer,
+  });
+  return data;
+}
+
+// Descarta a pergunta sem gerar nenhum contexto novo.
+export async function deletarPergunta(id: string): Promise<void> {
+  await api.delete(`/admin/unanswered-questions/${id}`);
 }

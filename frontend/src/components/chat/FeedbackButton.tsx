@@ -5,18 +5,13 @@ interface FeedbackButtonProps {
   disabled?: boolean;
 }
 
-/**
- * Antigo botão "Sair" — agora chamado de "Feedback" e funcional.
- * Ao clicar, envia a palavra "sair" no chat (mesmo gatilho que o
- * backend já usa em /pergunta para gerar a avaliação da entrevista).
- */
 export function FeedbackButton({ onClick, disabled }: FeedbackButtonProps) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      title="Encerrar a entrevista e pedir feedback"
+      title="Pedir feedback da entrevista até agora"
       className="feedback-btn"
     >
       <GraduationCap size={16} />

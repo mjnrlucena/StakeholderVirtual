@@ -6,22 +6,20 @@ interface MessageBubbleProps {
 }
 
 export function MessageBubble({ message }: MessageBubbleProps) {
-  const isUser = message.role === "user";
-  const isFeedback = message.role === "feedback";
+  const isUser = message.role === "USER";
+  const isFeedback = message.role === "FEEDBACK";
 
   if (isUser) {
     return (
       <div className="flex w-full justify-end">
         <div className="max-w-[75%] rounded-3xl bg-[var(--bubble-user-bg)] px-4 py-2.5 text-[var(--bubble-user-text)]">
-          <p className="whitespace-pre-wrap text-[15px] leading-relaxed">
-            {message.content}
-          </p>
+          <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{message.content}</p>
         </div>
       </div>
     );
   }
 
-  // Assistente e feedback: sem bolha, texto corrido com avatar à esquerda.
+  // Stakeholder e feedback: sem bolha, texto corrido com avatar à esquerda.
   return (
     <div className="flex w-full items-start gap-3">
       <div
