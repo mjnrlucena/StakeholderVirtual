@@ -16,6 +16,26 @@ const credentialsSchema = z.object({
   password: z.string().min(8, "A senha precisa ter pelo menos 8 caracteres"),
 });
 
+const registerSchema = credentialsSchema.extend({
+  turmaId: z.string().min(1, "Escolha a sua turma"),
+});
+
+type UserWithTurma = {
+  id: string;
+  email: string;
+  role: string;
+  turma: { id: string; nome: string } | null;
+};
+
+function toAuthUser(user: UserWithTurma) {
+  return {
+    id: user.id,
+    email: user.email,
+    role: user.role,
+    turma: user.turma ? { id: user.turma.id, nome: user.turma.nome } : null,
+  };
+}
+
 const cookieOpts = {
   httpOnly: true,
   secure: env.cookieSecure,
@@ -37,26 +57,33 @@ function setAuthCookies(res: Response, accessToken: string, refreshToken: string
 }
 
 export async function register(req: Request, res: Response) {
-  const { email, password } = credentialsSchema.parse(req.body);
+  const { email, password, turmaId } = registerSchema.parse(req.body);
 
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) throw new HttpError(409, "Já existe uma conta com esse e-mail");
 
+  const turma = await prisma.turma.findUnique({ where: { id: turmaId } });
+  if (!turma) throw new HttpError(400, "Turma inválida");
+
   const passwordHash = await bcrypt.hash(password, 12);
-  // Autocadastro sempre cria papel USER — admins só são promovidos manualmente.
-  const user = await prisma.user.create({ data: { email, passwordHash } });
+  // Autocadastro sempre cria papel ALUNO — professores/gestores só são
+  // promovidos pelo superadmin.
+  const user = await prisma.user.create({
+    data: { email, passwordHash, turmaId: turma.id },
+    include: { turma: true },
+  });
 
   const accessToken = signAccessToken({ sub: user.id, role: user.role });
   const refreshToken = await issueRefreshToken(user.id);
   setAuthCookies(res, accessToken, refreshToken);
 
-  res.status(201).json({ id: user.id, email: user.email, role: user.role });
+  res.status(201).json(toAuthUser(user));
 }
 
 export async function login(req: Request, res: Response) {
   const { email, password } = credentialsSchema.parse(req.body);
 
-  const user = await prisma.user.findUnique({ where: { email } });
+  const user = await prisma.user.findUnique({ where: { email }, include: { turma: true } });
   if (!user) throw new HttpError(401, "E-mail ou senha inválidos");
 
   const valid = await bcrypt.compare(password, user.passwordHash);
@@ -66,7 +93,7 @@ export async function login(req: Request, res: Response) {
   const refreshToken = await issueRefreshToken(user.id);
   setAuthCookies(res, accessToken, refreshToken);
 
-  res.json({ id: user.id, email: user.email, role: user.role });
+  res.json(toAuthUser(user));
 }
 
 export async function refresh(req: Request, res: Response) {
@@ -92,6 +119,9 @@ export async function logout(req: Request, res: Response) {
 }
 
 export async function me(req: Request, res: Response) {
-  const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
-  res.json({ id: user.id, email: user.email, role: user.role });
+  const user = await prisma.user.findUniqueOrThrow({
+    where: { id: req.user!.id },
+    include: { turma: true },
+  });
+  res.json(toAuthUser(user));
 }

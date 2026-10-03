@@ -1,0 +1,11 @@
+stackholdervirtual.online {
+    reverse_proxy frontend:80
+}
+
+www.stackholdervirtual.online {
+    redir https://stackholdervirtual.online{uri} permanent
+}
+
+api.stackholdervirtual.online {
+    reverse_proxy backend:3000
+}

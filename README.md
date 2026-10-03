@@ -12,8 +12,9 @@ backend/      Node + Express + Prisma   → deploy no Render
 adk-service/  Python + FastAPI + ADK    → deploy no Render (serviço separado)
 ```
 
-- **frontend**: interface do estudante (login, seleção de projeto, chat) e do
-  admin (upload de PDFs, fila de perguntas não respondidas).
+- **frontend**: interface do aluno (cadastro com turma, login, seleção de
+  projeto, chat) e do hub da equipe (upload de PDFs, fila de perguntas não
+  respondidas, dashboard de conversas).
 - **backend**: dono da verdade — autenticação (JWT access+refresh em cookies
   httpOnly), Postgres via Prisma (Supabase), upload de PDF pro Supabase
   Storage, e quem chama o `adk-service` a cada pergunta.
@@ -72,12 +73,26 @@ npm install
 npm run dev              # http://localhost:5173
 ```
 
-### 5. (opcional) popular projetos com os PDFs antigos
-Os PDFs que estavam em `/pdfs` (do protótipo antigo em Flask) podem ser
-importados como projetos de uma vez com:
+### 5. Seed inicial (superadmin + PDFs antigos)
 ```bash
 cd backend && npm run seed
 ```
+Cria a conta `superadmin@gmail.com` (troque a senha em produção) e, se existir
+a pasta `/pdfs`, importa os PDFs como projetos. Depois, entre como superadmin e
+cadastre as **turmas** no hub: sem turmas, ninguém consegue se cadastrar.
+
+### Papéis
+| Papel | O que pode |
+|---|---|
+| `ALUNO` | Uso convencional (chat). Escolhe a turma no cadastro. |
+| `GESTOR` | Hub só para responder/descartar perguntas não respondidas. |
+| `PROFESSOR` | Hub completo (PDFs, perguntas) + dashboard de conversas. Não promove ninguém. |
+| `SUPERADMIN` | Tudo, e é o único que promove professores/gestores e cria turmas. |
+
+### Busca dos logs
+A migration habilita as extensões `unaccent` e `pg_trgm` (o usuário do banco
+precisa poder criá-las) e cria índices GIN para a busca sem acento e tolerante
+a erros de digitação.
 
 ## Deploy
 

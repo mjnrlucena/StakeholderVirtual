@@ -35,7 +35,7 @@ services:
     expose:
       - "3000"
 
-  frontend:
+    frontend:
     build:
       context: ./frontend
       args:
@@ -58,7 +58,6 @@ services:
     depends_on:
       - backend
       - frontend
-
 volumes:
   pgdata:
   uploads:

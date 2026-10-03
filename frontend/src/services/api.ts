@@ -1,5 +1,12 @@
 import axios, { AxiosError } from "axios";
-import type { AuthUser } from "@/types/auth";
+import type { AuthUser, Role, Turma, TurmaRef } from "@/types/auth";
+import type {
+  LogFilterOptions,
+  LogParams,
+  LogsPage,
+  LogsSummary,
+  SessionLog,
+} from "@/types/logs";
 import type { ChatResponse, SendMessageResponse } from "@/types/chat";
 import type { AdminProject, Project, UnansweredQuestion } from "@/types/project";
 
@@ -12,11 +19,6 @@ export const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL,
   withCredentials: true,
 });
-
-export async function adicionarAdmin(email: string) {
-  const { data } = await api.post("/admin/add-admin", { email });
-  return data;
-}
 
 // Refresh automático: se uma chamada vier 401, tenta renovar o access
 // token uma vez (via cookie de refresh) e repete a requisição original.
@@ -47,8 +49,14 @@ api.interceptors.response.use(
 
 // --- Auth ---------------------------------------------------------------
 
-export async function register(email: string, password: string): Promise<AuthUser> {
-  const { data } = await api.post<AuthUser>("/auth/register", { email, password });
+export async function register(email: string, password: string, turmaId: string): Promise<AuthUser> {
+  const { data } = await api.post<AuthUser>("/auth/register", { email, password, turmaId });
+  return data;
+}
+
+// Pública: usada pelo select de turma na tela de cadastro.
+export async function listarTurmas(): Promise<TurmaRef[]> {
+  const { data } = await api.get<TurmaRef[]>("/turmas");
   return data;
 }
 
@@ -104,6 +112,10 @@ export async function listarProjetosAdmin(): Promise<AdminProject[]> {
   return data;
 }
 
+export async function removerProjeto(id: string): Promise<void> {
+  await api.delete(`/admin/projects/${id}`);
+}
+
 export async function criarProjeto(params: {
   title: string;
   description?: string;
@@ -134,4 +146,56 @@ export async function responderPergunta(id: string, answer: string): Promise<Una
 // Descarta a pergunta sem gerar nenhum contexto novo.
 export async function deletarPergunta(id: string): Promise<void> {
   await api.delete(`/admin/unanswered-questions/${id}`);
+}
+
+// --- SuperAdmin: papéis e turmas ----------------------------------------------
+
+export async function promoverUsuario(email: string, role: Extract<Role, "PROFESSOR" | "GESTOR" | "ALUNO">) {
+  const { data } = await api.post("/admin/promover", { email, role });
+  return data;
+}
+
+export async function listarTurmasAdmin(): Promise<Turma[]> {
+  const { data } = await api.get<Turma[]>("/admin/turmas");
+  return data;
+}
+
+export async function criarTurma(nome: string): Promise<TurmaRef> {
+  const { data } = await api.post<TurmaRef>("/admin/turmas", { nome });
+  return data;
+}
+
+export async function removerTurma(id: string): Promise<void> {
+  await api.delete(`/admin/turmas/${id}`);
+}
+
+// --- Professor: logs das conversas ---------------------------------------------
+
+// Tira vazios para a URL ficar limpa; arrays viram `chave[]=a&chave[]=b`.
+function cleanParams(params: LogParams) {
+  return Object.fromEntries(
+    Object.entries(params).filter(([, v]) =>
+      Array.isArray(v) ? v.length > 0 : v !== undefined && v !== "" && v !== false,
+    ),
+  );
+}
+
+export async function listarLogs(params: LogParams): Promise<LogsPage> {
+  const { data } = await api.get<LogsPage>("/admin/logs", { params: cleanParams(params) });
+  return data;
+}
+
+export async function resumoLogs(params: LogParams): Promise<LogsSummary> {
+  const { data } = await api.get<LogsSummary>("/admin/logs/summary", { params: cleanParams(params) });
+  return data;
+}
+
+export async function opcoesFiltroLogs(): Promise<LogFilterOptions> {
+  const { data } = await api.get<LogFilterOptions>("/admin/logs/filters");
+  return data;
+}
+
+export async function conversaDoLog(sessionId: string): Promise<SessionLog[]> {
+  const { data } = await api.get<SessionLog[]>(`/admin/logs/sessions/${sessionId}`);
+  return data;
 }

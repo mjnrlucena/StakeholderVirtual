@@ -37,3 +37,19 @@ export async function uploadReportPdf(fileBuffer: Buffer, originalName: string):
 
   return key;
 }
+
+// Remove o PDF do storage. Melhor esforço: se o arquivo já não existir (ou o
+// storage falhar), o projeto ainda assim pode ser apagado do banco.
+export async function deleteReportPdf(key: string): Promise<void> {
+  try {
+    if (env.storageDriver === "local") {
+      await fs.rm(path.join(LOCAL_UPLOADS_DIR, key), { force: true });
+      return;
+    }
+
+    const { error } = await supabase!.storage.from(env.supabaseStorageBucket).remove([key]);
+    if (error) console.error(`[storage] falha ao remover ${key}:`, error.message);
+  } catch (err) {
+    console.error(`[storage] falha ao remover ${key}:`, err);
+  }
+}

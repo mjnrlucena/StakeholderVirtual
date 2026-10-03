@@ -14,9 +14,15 @@ depois. Isso evita depender de estado em memória do processo Python, que
 se perderia a cada redeploy/restart no Render.
 """
 
+import json
 import os
 import uuid
 from typing import Any, Dict, List
+
+# O LiteLLM baixa um JSON de preços do GitHub ao ser importado, o que atrasa o
+# boot e pode travar sem rede. Usar o mapa embutido na lib evita isso. Precisa
+# ser definido ANTES de importar google.adk / litellm.
+os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from pydantic import BaseModel
 from google.adk.agents.llm_agent import LlmAgent
@@ -81,9 +87,9 @@ PERGUNTA DO ESTUDANTE:
 RESPOSTA RASCUNHO DO STAKEHOLDER:
 {draft_answer}
 
-Se a resposta rascunho for fiel ao relatório: `grounded=true` e repita a
-resposta rascunho (ou uma versão levemente polida, sem mudar o conteúdo) em
-`final_answer`.
+Se a resposta rascunho for fiel ao relatório: `grounded=true` e deixe
+`final_answer` como string vazia ("") — a resposta rascunho será usada como
+está, NÃO a repita.
 
 Se a resposta rascunho inventar algo que não está no relatório: `grounded=false`
 e, em `final_answer`, escreva uma resposta curta e natural do stakeholder
@@ -119,39 +125,70 @@ TRANSCRIÇÃO DA CONVERSA:
 class VerificationResult(BaseModel):
     grounded: bool
     covered_by_report: bool
-    final_answer: str
+    # Só preenchido quando grounded=False (resposta substituída). Quando o
+    # rascunho é fiel fica vazio, e o modelo não gasta tokens repetindo-o.
+    final_answer: str = ""
 
 
-def _build_pipeline() -> SequentialAgent:
-    persona_agent = LlmAgent(
-        name="stakeholder_persona",
-        model=LiteLlm(model=MODEL_NAME),
-        instruction=PERSONA_INSTRUCTION,
-        output_key="draft_answer",
-    )
-    verifier_agent = LlmAgent(
-        name="fidelity_verifier",
-        model=LiteLlm(model=MODEL_NAME),
-        instruction=VERIFIER_INSTRUCTION,
-        output_schema=VerificationResult,
-        output_key="verification",
-    )
-    return SequentialAgent(name="stakeholder_pipeline", sub_agents=[persona_agent, verifier_agent])
+# ==============================================================================
+# OTIMIZAÇÃO DE MEMÓRIA E CPU:
+# Declaração das instâncias globais dos agentes e pipelines.
+# Evita recriar objetos complexos do ADK/LiteLLM a cada requisição HTTP,
+# economizando ciclos de processamento e mantendo o consumo de RAM estável.
+# ==============================================================================
+
+_llm_model = LiteLlm(model=MODEL_NAME)
+
+_persona_agent = LlmAgent(
+    name="stakeholder_persona",
+    model=_llm_model,
+    instruction=PERSONA_INSTRUCTION,
+    output_key="draft_answer",
+)
+
+_verifier_agent = LlmAgent(
+    name="fidelity_verifier",
+    model=_llm_model,
+    instruction=VERIFIER_INSTRUCTION,
+    output_schema=VerificationResult,
+    output_key="verification",
+)
+
+# Pipeline reutilizável contendo a sequência dos dois agentes
+STAKEHOLDER_PIPELINE = SequentialAgent(
+    name="stakeholder_pipeline",
+    sub_agents=[_persona_agent, _verifier_agent],
+)
+
+# Agente reutilizável para a geração do feedback pedagógico
+FEEDBACK_AGENT = LlmAgent(
+    name="interview_feedback",
+    model=_llm_model,
+    instruction=FEEDBACK_INSTRUCTION,
+    output_key="feedback",
+)
+
+
+# Runners reutilizados entre requisições (criar um por chamada é trabalho
+# desperdiçado). Cada execução continua usando uma sessão própria, apagada ao fim.
+_PIPELINE_RUNNER = InMemoryRunner(agent=STAKEHOLDER_PIPELINE, app_name=APP_NAME)
+_FEEDBACK_RUNNER = InMemoryRunner(agent=FEEDBACK_AGENT, app_name=APP_NAME)
 
 
 def _format_history(history: List[Dict[str, str]]) -> str:
+    """Formata a lista de mensagens recebida em uma transcrição legível."""
     if not history:
         return "(sem histórico ainda, é a primeira pergunta desta conversa)"
     linhas = []
     for turn in history:
-        quem = "Aluno" if turn["role"] == "user" else "Stakeholder"
-        linhas.append(f"{quem}: {turn['content']}")
+        # Usa .get() para prevenir KeyError caso a chave mude pontualmente
+        quem = "Aluno" if turn.get("role") == "user" else "Stakeholder"
+        linhas.append(f"{quem}: {turn.get('content', '')}")
     return "\n".join(linhas)
 
 
 async def run_pipeline(question: str, report_text: str, history: List[Dict[str, str]]) -> Dict[str, Any]:
-    pipeline = _build_pipeline()
-    runner = InMemoryRunner(agent=pipeline, app_name=APP_NAME)
+    runner = _PIPELINE_RUNNER
 
     user_id = "adhoc-user"
     session_id = str(uuid.uuid4())
@@ -172,7 +209,7 @@ async def run_pipeline(question: str, report_text: str, history: List[Dict[str, 
     async for _event in runner.run_async(
         user_id=user_id, session_id=session_id, new_message=new_message
     ):
-        pass  # só precisamos do estado final, não dos eventos intermediários
+        pass  # Só precisamos do estado final da sessão
 
     session = await runner.session_service.get_session(
         app_name=APP_NAME, user_id=user_id, session_id=session_id
@@ -181,14 +218,26 @@ async def run_pipeline(question: str, report_text: str, history: List[Dict[str, 
     verification = session.state.get("verification")
     draft_answer = session.state.get("draft_answer", "")
 
+    # ==========================================================================
+    # PARSING RESILIENTE DO OUTPUT SCHEMA:
+    # O LiteLLM/ADK pode serializar o schema de saída como uma string JSON pura.
+    # Fazemos o parse defensivo antes de validar o tipo do objeto.
+    # ==========================================================================
+    if isinstance(verification, str):
+        try:
+            verification = json.loads(verification)
+        except Exception:
+            verification = None
+
     if isinstance(verification, VerificationResult):
         grounded = verification.grounded
         covered_by_report = verification.covered_by_report
-        final_answer = verification.final_answer
+        final_answer = verification.final_answer if not grounded else ""
+        final_answer = final_answer or draft_answer
     elif isinstance(verification, dict):
         grounded = bool(verification.get("grounded", False))
         covered_by_report = bool(verification.get("covered_by_report", False))
-        final_answer = verification.get("final_answer") or draft_answer
+        final_answer = (verification.get("final_answer") if not grounded else "") or draft_answer
     else:
         # Defensivo: se o verificador não produziu um resultado utilizável,
         # não arriscamos alucinação — tratamos como não coberto pelo relatório.
@@ -199,22 +248,25 @@ async def run_pipeline(question: str, report_text: str, history: List[Dict[str, 
             "claro nas reuniões que participei."
         )
 
-    return {"answer": final_answer, "grounded": grounded, "coveredByReport": covered_by_report}
-
-
-def _build_feedback_agent() -> LlmAgent:
-    return LlmAgent(
-        name="interview_feedback",
-        model=LiteLlm(model=MODEL_NAME),
-        instruction=FEEDBACK_INSTRUCTION,
-        output_key="feedback",
+    # ==========================================================================
+    # LIMPEZA DE MEMÓRIA (Anti-OOM):
+    # Deleta a sessão explicitamente do InMemoryRunner para evitar acúmulo
+    # de dicionários no heap do Python durante execuções prolongadas.
+    # ==========================================================================
+    await runner.session_service.delete_session(
+        app_name=APP_NAME, user_id=user_id, session_id=session_id
     )
+
+    return {
+        "answer": final_answer,
+        "grounded": grounded,
+        "coveredByReport": covered_by_report,
+    }
 
 
 async def run_feedback(history: List[Dict[str, str]]) -> str:
     """Gera a avaliação pedagógica da entrevista inteira até agora."""
-    agent = _build_feedback_agent()
-    runner = InMemoryRunner(agent=agent, app_name=APP_NAME)
+    runner = _FEEDBACK_RUNNER
 
     user_id = "adhoc-user"
     session_id = str(uuid.uuid4())
@@ -239,6 +291,13 @@ async def run_feedback(history: List[Dict[str, str]]) -> str:
         app_name=APP_NAME, user_id=user_id, session_id=session_id
     )
 
-    return session.state.get("feedback") or (
+    feedback = session.state.get("feedback") or (
         "Não foi possível gerar o feedback agora. Tente novamente em instantes."
     )
+
+    # Limpeza explícita da sessão da memória
+    await runner.session_service.delete_session(
+        app_name=APP_NAME, user_id=user_id, session_id=session_id
+    )
+
+    return feedback

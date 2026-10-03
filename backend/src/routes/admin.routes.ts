@@ -1,15 +1,21 @@
 import { Router } from "express";
 import multer from "multer";
 import { asyncHandler } from "../utils/asyncHandler";
-import { requireAdmin, requireAuth, requireSuperAdmin } from "../middleware/auth";
+import { requireAuth, requireProfessor, requireStaff, requireSuperAdmin } from "../middleware/auth";
 import {
   answerQuestion,
   createProject,
+  deleteProject,
   deleteQuestion,
   listAdminProjects,
+  listLogs,
   listUnansweredQuestions,
-  addAdmin,
+  logSession,
+  logsFilterOptions,
+  logsSummary,
+  promoteUser,
 } from "../controllers/admin.controller";
+import { createTurma, deleteTurma, listTurmasAdmin } from "../controllers/turmas.controller";
 
 // Arquivo fica só em memória (buffer) — nunca é gravado em disco local,
 // já que o backend roda em disco efêmero no Render. Vai direto pro
@@ -27,11 +33,24 @@ const upload = multer({
 
 export const adminRouter = Router();
 
-adminRouter.use(requireAuth, requireAdmin);
+adminRouter.use(requireAuth);
 
-adminRouter.post("/add-admin", requireSuperAdmin, addAdmin);
-adminRouter.get("/projects", asyncHandler(listAdminProjects));
-adminRouter.post("/projects", upload.single("pdf"), asyncHandler(createProject));
-adminRouter.get("/unanswered-questions", asyncHandler(listUnansweredQuestions));
-adminRouter.patch("/unanswered-questions/:id/answer", asyncHandler(answerQuestion));
-adminRouter.delete("/unanswered-questions/:id", asyncHandler(deleteQuestion));
+// Superadmin: promover/rebaixar usuários e gerenciar turmas.
+adminRouter.post("/promover", requireSuperAdmin, asyncHandler(promoteUser));
+adminRouter.get("/turmas", requireSuperAdmin, asyncHandler(listTurmasAdmin));
+adminRouter.post("/turmas", requireSuperAdmin, asyncHandler(createTurma));
+adminRouter.delete("/turmas/:id", requireSuperAdmin, asyncHandler(deleteTurma));
+
+// Professor (e superadmin): projetos e dashboard de logs. Gestor não acessa.
+adminRouter.get("/projects", requireProfessor, asyncHandler(listAdminProjects));
+adminRouter.post("/projects", requireProfessor, upload.single("pdf"), asyncHandler(createProject));
+adminRouter.delete("/projects/:id", requireProfessor, asyncHandler(deleteProject));
+adminRouter.get("/logs", requireProfessor, asyncHandler(listLogs));
+adminRouter.get("/logs/summary", requireProfessor, asyncHandler(logsSummary));
+adminRouter.get("/logs/filters", requireProfessor, asyncHandler(logsFilterOptions));
+adminRouter.get("/logs/sessions/:sessionId", requireProfessor, asyncHandler(logSession));
+
+// Equipe inteira (professor, gestor, superadmin): perguntas não respondidas.
+adminRouter.get("/unanswered-questions", requireStaff, asyncHandler(listUnansweredQuestions));
+adminRouter.patch("/unanswered-questions/:id/answer", requireStaff, asyncHandler(answerQuestion));
+adminRouter.delete("/unanswered-questions/:id", requireStaff, asyncHandler(deleteQuestion));

@@ -7,10 +7,19 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ALUNO: uso convencional. PROFESSOR: hub completo (menos promover outros
+// professores). GESTOR: hub só para responder/descartar perguntas não
+// respondidas. SUPERADMIN: tudo, inclusive promover e gerenciar turmas.
 enum Role {
-  USER
-  ADMIN
+  ALUNO
+  PROFESSOR
+  GESTOR
   SUPERADMIN
+}
+
+enum LogKind {
+  PERGUNTA
+  FEEDBACK
 }
 
 enum MessageRole {
@@ -23,12 +32,22 @@ model User {
   id           String   @id @default(uuid())
   email        String   @unique
   passwordHash String
-  role         Role     @default(USER)
+  role         Role     @default(ALUNO)
+  turmaId      String?
+  turma        Turma?   @relation(fields: [turmaId], references: [id], onDelete: SetNull)
   createdAt    DateTime @default(now())
 
   refreshTokens       RefreshToken[]
   chats               Chat[]
   unansweredQuestions UnansweredQuestion[]
+}
+
+model Turma {
+  id        String   @id @default(uuid())
+  nome      String   @unique
+  createdAt DateTime @default(now())
+
+  users User[]
 }
 
 model RefreshToken {
@@ -65,6 +84,10 @@ model Chat {
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
 
+  // Muda a cada "Nova conversa": agrupa os logs de uma mesma conversa,
+  // mesmo depois de as mensagens do chat terem sido apagadas.
+  sessionId String   @default(uuid())
+
   messages Message[]
 
   @@unique([userId, projectId])
@@ -100,4 +123,37 @@ model UnansweredQuestion {
   answeredAt DateTime?
 
   @@index([projectId])
+}
+
+// Log imutável de cada interação (pergunta + resposta). Fica separado de
+// Message porque "Nova conversa" apaga as mensagens, mas o log precisa
+// sobreviver. Sem foreign keys de propósito: turma e projeto são
+// snapshots, então o histórico continua correto mesmo que o aluno mude
+// de turma ou que algo seja removido. Não guarda e-mail.
+//
+// A busca textual usa índices GIN (pg_trgm + unaccent) criados na migration
+// sobre immutable_unaccent(lower(prompt|response)) — o Prisma não os
+// representa, por isso eles só existem no SQL da migration.
+model InteractionLog {
+  id              String   @id @default(uuid())
+  createdAt       DateTime @default(now())
+  kind            LogKind  @default(PERGUNTA)
+  sessionId       String
+  userId          String?
+  userRole        Role
+  turmaId         String?
+  turmaNome       String
+  projectId       String
+  projectTitle    String
+  prompt          String
+  response        String
+  grounded        Boolean?
+  coveredByReport Boolean?
+  latencyMs       Int
+  error           String?
+
+  @@index([createdAt])
+  @@index([turmaId])
+  @@index([projectId])
+  @@index([sessionId])
 }

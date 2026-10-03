@@ -48,3 +48,19 @@ export async function askAdkFeedback(history: AdkHistoryTurn[]): Promise<string>
   const data = (await response.json()) as { feedback: string };
   return data.feedback;
 }
+
+// Acorda o microserviço ADK (Render free dorme após inatividade e o cold start
+// leva dezenas de segundos). Chamado quando o aluno abre a lista de projetos
+// ou um chat, para o serviço já estar de pé quando ele mandar o primeiro
+// prompt. Fire-and-forget, com no máximo uma chamada a cada 4 minutos.
+let lastWarmAt = 0;
+
+export function warmAdk(): void {
+  const now = Date.now();
+  if (now - lastWarmAt < 4 * 60 * 1000) return;
+  lastWarmAt = now;
+
+  fetch(`${env.adkServiceUrl}/health`, { signal: AbortSignal.timeout(90_000) }).catch(() => {
+    // Sem problema: é só um aquecimento.
+  });
+}

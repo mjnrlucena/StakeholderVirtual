@@ -190,3 +190,7 @@ backend/uploads/
 
 
 backend/prisma/migrations
+
+.env
+backend.env
+adk.env

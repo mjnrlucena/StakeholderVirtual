@@ -3,7 +3,9 @@ Microserviço FastAPI que expõe o pipeline de agentes ADK para o backend
 Node/Express chamar. Roda como um Web Service separado no Render.
 """
 
+import asyncio
 import os
+from contextlib import asynccontextmanager
 from typing import List, Literal
 
 from dotenv import load_dotenv
@@ -14,7 +16,32 @@ load_dotenv()
 
 from agents.pipeline import run_feedback, run_pipeline  # noqa: E402
 
-app = FastAPI(title="StakeholderVirtual ADK Service")
+
+
+async def _warmup() -> None:
+    """Roda o pipeline uma vez com dados fictícios para pagar, no boot, o custo
+    do PRIMEIRO prompt (imports preguiçosos, schemas, conexão TLS com a OpenAI).
+    Custa só 2 chamadas pequenas por start; desligue com ADK_WARMUP=0."""
+    try:
+        await run_pipeline(
+            question="Oi, tudo bem?",
+            report_text="Relatório fictício usado apenas para aquecer o serviço.",
+            history=[],
+        )
+        print("[warmup] pipeline aquecido")
+    except Exception as exc:  # noqa: BLE001 - aquecimento nunca derruba o serviço
+        print(f"[warmup] falhou (ignorado): {exc}")
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    task = asyncio.create_task(_warmup()) if os.getenv("ADK_WARMUP", "1") != "0" else None
+    yield
+    if task and not task.done():
+        task.cancel()
+
+
+app = FastAPI(title="StakeholderVirtual ADK Service", lifespan=lifespan)
 
 
 class HistoryTurn(BaseModel):

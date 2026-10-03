@@ -1,9 +1,11 @@
 import { Request, Response } from "express";
 import { z } from "zod";
-import { MessageRole } from "@prisma/client";
+import { randomUUID } from "node:crypto";
+import { LogKind, MessageRole } from "@prisma/client";
 import { prisma } from "../prisma";
 import { HttpError } from "../middleware/errorHandler";
-import { askAdkAgent, askAdkFeedback, AdkHistoryTurn } from "../services/adkClient.service";
+import { askAdkAgent, askAdkFeedback, AdkHistoryTurn, warmAdk } from "../services/adkClient.service";
+import { getLogActor, recordInteraction } from "../services/interactionLog.service";
 
 const HISTORY_LIMIT = 20; // últimas N mensagens mandadas como histórico pro agente
 
@@ -32,7 +34,44 @@ function toAdkHistory(messages: { role: MessageRole; content: string }[]): AdkHi
     }));
 }
 
+// Pede o feedback pedagógico ao ADK e registra no log (sucesso ou erro).
+async function requestFeedbackLogged(params: {
+  history: AdkHistoryTurn[];
+  actor: Awaited<ReturnType<typeof getLogActor>>;
+  chat: { sessionId: string };
+  project: { id: string; title: string };
+  prompt: string;
+}): Promise<string> {
+  const { history, actor, chat, project, prompt } = params;
+  const base = {
+    actor,
+    kind: LogKind.FEEDBACK,
+    sessionId: chat.sessionId,
+    projectId: project.id,
+    projectTitle: project.title,
+    prompt,
+    grounded: null,
+    coveredByReport: null,
+  };
+
+  const startedAt = Date.now();
+  try {
+    const text = await askAdkFeedback(history);
+    await recordInteraction({ ...base, response: text, latencyMs: Date.now() - startedAt });
+    return text;
+  } catch (err) {
+    await recordInteraction({
+      ...base,
+      response: "",
+      latencyMs: Date.now() - startedAt,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
+}
+
 export async function getChat(req: Request, res: Response) {
+  warmAdk();
   const { projectId } = req.params;
   const { chat } = await getOrCreateChat(req.user!.id, projectId);
 
@@ -49,7 +88,10 @@ const messageSchema = z.object({ pergunta: z.string().trim().min(1) });
 export async function sendMessage(req: Request, res: Response) {
   const { projectId } = req.params;
   const { pergunta } = messageSchema.parse(req.body);
-  const { chat, project } = await getOrCreateChat(req.user!.id, projectId);
+  const [{ chat, project }, actor] = await Promise.all([
+    getOrCreateChat(req.user!.id, projectId),
+    getLogActor(req.user!.id),
+  ]);
 
   const isSair = pergunta.trim().toLowerCase() === "sair";
 
@@ -68,7 +110,13 @@ export async function sendMessage(req: Request, res: Response) {
       data: { chatId: chat.id, role: MessageRole.USER, content: pergunta },
     });
 
-    const feedbackText = await askAdkFeedback(history);
+    const feedbackText = await requestFeedbackLogged({
+      history,
+      actor,
+      chat,
+      project,
+      prompt: pergunta,
+    });
 
     const feedbackMessage = await prisma.message.create({
       data: { chatId: chat.id, role: MessageRole.FEEDBACK, content: feedbackText },
@@ -81,44 +129,87 @@ export async function sendMessage(req: Request, res: Response) {
     });
   }
 
-  await prisma.message.create({
-    data: { chatId: chat.id, role: MessageRole.USER, content: pergunta },
-  });
-
+  // Histórico lido ANTES de salvar a pergunta atual (assim ela não entra nele e
+  // dispensa o skip). Salvar a pergunta roda em paralelo com a chamada ao ADK:
+  // o aluno não precisa esperar essa ida ao banco antes de a IA começar.
   const previousMessages = await prisma.message.findMany({
     where: { chatId: chat.id },
     orderBy: { createdAt: "desc" },
-    take: HISTORY_LIMIT + 1, // +1 porque a pergunta que acabamos de salvar já está aí
-    skip: 1,
+    take: HISTORY_LIMIT,
   });
-
   const history = toAdkHistory(previousMessages.reverse());
 
-  const { answer, grounded, coveredByReport } = await askAdkAgent({
-    question: pergunta,
-    reportText: project.reportText,
-    history,
+  const savingQuestion = prisma.message.create({
+    data: { chatId: chat.id, role: MessageRole.USER, content: pergunta },
   });
+  savingQuestion.catch(() => {}); // o erro real é tratado no await mais abaixo
 
-  const stakeholderMessage = await prisma.message.create({
-    data: { chatId: chat.id, role: MessageRole.STAKEHOLDER, content: answer, grounded },
-  });
+  const startedAt = Date.now();
+  let adkResult: Awaited<ReturnType<typeof askAdkAgent>>;
+  try {
+    adkResult = await askAdkAgent({
+      question: pergunta,
+      reportText: project.reportText,
+      history,
+    });
+  } catch (err) {
+    // Falhas do ADK também entram no log (com a mensagem de erro).
+    void recordInteraction({
+      actor,
+      kind: LogKind.PERGUNTA,
+      sessionId: chat.sessionId,
+      projectId: project.id,
+      projectTitle: project.title,
+      prompt: pergunta,
+      response: "",
+      grounded: null,
+      coveredByReport: null,
+      latencyMs: Date.now() - startedAt,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
+  const { answer, grounded, coveredByReport } = adkResult;
+  const latencyMs = Date.now() - startedAt;
+
+  // A pergunta precisa estar salva antes da resposta (ordem no histórico).
+  await savingQuestion;
 
   // "Não coberto pelo relatório" é o que importa pro admin revisar — inclui
   // tanto invenção (grounded=false) quanto um "não sei" honesto sobre algo
   // que o relatório simplesmente não aborda.
-  if (!coveredByReport) {
-    await prisma.unansweredQuestion.create({
-      data: { projectId, userId: req.user!.id, question: pergunta },
-    });
-  }
+  const [stakeholderMessage] = await Promise.all([
+    prisma.message.create({
+      data: { chatId: chat.id, role: MessageRole.STAKEHOLDER, content: answer, grounded },
+    }),
+    coveredByReport
+      ? Promise.resolve()
+      : prisma.unansweredQuestion.create({
+          data: { projectId, userId: req.user!.id, question: pergunta },
+        }),
+  ]);
+
+  // Log não bloqueia a resposta ao aluno (recordInteraction já trata os próprios erros).
+  void recordInteraction({
+    actor,
+    kind: LogKind.PERGUNTA,
+    sessionId: chat.sessionId,
+    projectId: project.id,
+    projectTitle: project.title,
+    prompt: pergunta,
+    response: answer,
+    grounded,
+    coveredByReport,
+    latencyMs,
+  });
 
   res.json({ resposta: stakeholderMessage.content, grounded, dataHora: stakeholderMessage.createdAt });
 }
 
 export async function sendFeedback(req: Request, res: Response) {
   const { projectId } = req.params;
-  const { chat } = await getOrCreateChat(req.user!.id, projectId);
+  const { chat, project } = await getOrCreateChat(req.user!.id, projectId);
+  const actor = await getLogActor(req.user!.id);
 
   const messages = await prisma.message.findMany({
     where: { chatId: chat.id },
@@ -130,7 +221,13 @@ export async function sendFeedback(req: Request, res: Response) {
     throw new HttpError(400, "Ainda não há perguntas nessa entrevista para avaliar");
   }
 
-  const feedbackText = await askAdkFeedback(history);
+  const feedbackText = await requestFeedbackLogged({
+    history,
+    actor,
+    chat,
+    project,
+    prompt: "(feedback solicitado pelo botão)",
+  });
 
   const feedbackMessage = await prisma.message.create({
     data: { chatId: chat.id, role: MessageRole.FEEDBACK, content: feedbackText },
@@ -146,7 +243,12 @@ export async function resetChat(req: Request, res: Response) {
   // Apaga as mensagens do chat atual — o registro do Chat continua o
   // mesmo (é o "slot" único do usuário para esse projeto), mas some toda
   // a memória anterior, exatamente como pedido.
-  await prisma.message.deleteMany({ where: { chatId: chat.id } });
+  // O sessionId muda para que os logs da próxima conversa não se misturem
+  // com os da anterior (os logs em si nunca são apagados).
+  await prisma.$transaction([
+    prisma.message.deleteMany({ where: { chatId: chat.id } }),
+    prisma.chat.update({ where: { id: chat.id }, data: { sessionId: randomUUID() } }),
+  ]);
 
   res.json({ ok: true });
 }

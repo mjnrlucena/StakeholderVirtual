@@ -8,6 +8,7 @@ body,
   padding: 0;
 }
 
+
 body {
   /* Fonte padrão do sistema (sem webfont customizada) */
   font-family:
@@ -25,7 +26,7 @@ body {
 
 /*
   Tokens de cor no estilo ChatGPT: fundo neutro, quase sem cor de marca,
-  com um único acento (verde) usado com moderação. Tema claro é o padrão
+  com um único acento (azul) usado com moderação. Tema claro é o padrão
   (:root). Tema escuro é ativado pela classe "dark" na tag <html>
   (useThemeStore / ThemeProvider).
 */
@@ -38,10 +39,11 @@ body {
   --border: #e5e5e5;
   --composer-bg: #ffffff;
   --composer-border: #d9d9e3;
-  --bubble-user-bg: #f4f4f5;
+  --bubble-user-bg: #eaf2ff;
   --bubble-user-text: #0d0d0d;
-  --accent: #10a37f;
-  --accent-hover: #0e8f6f;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-soft: #e8f0fe;
   --accent-contrast: #ffffff;
   --danger: #d1453b;
 }
@@ -55,10 +57,11 @@ body {
   --border: #3a3a3a;
   --composer-bg: #2f2f2f;
   --composer-border: #4d4d4f;
-  --bubble-user-bg: #2f2f2f;
+  --bubble-user-bg: #1f3350;
   --bubble-user-text: #ececec;
-  --accent: #19c37d;
-  --accent-hover: #1fdb8e;
+  --accent: #60a5fa;
+  --accent-hover: #93c5fd;
+  --accent-soft: #1b2b45;
   --accent-contrast: #0d0d0d;
   --danger: #f2867e;
 }
@@ -66,24 +69,36 @@ body {
 body {
   background-color: var(--background);
   color: var(--text-primary);
-  transition:
-    background-color 0.15s ease,
-    color 0.15s ease;
+}
+
+/* Esconde a barra de rolagem sem desativar o scroll (wheel, touch, teclado). */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
 
 @layer components {
   .icon-btn {
-    @apply flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-[var(--text-secondary)] outline-0  hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent;
+    @apply flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-[var(--text-secondary)] outline-0  hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent;
+  }
+
+  /* Botão da top bar com ícone + texto (ex.: "Nova conversa"). */
+  .topbar-btn {
+    @apply flex h-9 shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full border border-[var(--border)] bg-transparent px-3 text-sm font-medium text-[var(--text-primary)] outline-0  hover:bg-[var(--surface-hover)] focus-visible:ring-2 focus-visible:ring-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent;
   }
 
   .composer {
-    @apply bg-[var(--composer-bg)] border border-[var(--composer-border)] shadow-sm;
+    @apply bg-[var(--composer-bg)] border border-[var(--composer-border)] shadow-sm  focus-within:border-[var(--accent)];
   }
 
   .send-btn {
-    @apply flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-[var(--text-primary)] text-[var(--background)] outline-0 transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-30;
+    @apply flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-[var(--accent)] text-[var(--accent-contrast)] outline-0  hover:bg-[var(--accent-hover)] focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--composer-bg)] disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-[var(--accent)];
   }
-    .feedback-btn {
-    @apply flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border-0 bg-transparent px-3 text-sm font-medium text-[var(--text-secondary)] outline-0  hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent;
+
+  .feedback-btn {
+    @apply flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border-0 bg-transparent px-3 text-sm font-medium text-[var(--text-secondary)] outline-0  hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent;
   }
 }

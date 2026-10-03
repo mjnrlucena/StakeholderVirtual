@@ -17,5 +17,5 @@ export interface UnansweredQuestion {
   answeredAt: string | null;
   reviewed: boolean;
   project: { id: string; title: string };
-  user: { id: string; email: string } | null;
+  user: { id: string; turma: { id: string; nome: string } | null } | null;
 }

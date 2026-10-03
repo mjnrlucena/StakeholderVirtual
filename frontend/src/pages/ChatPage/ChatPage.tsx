@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
 import { ChatInput } from "@/components/chat/ChatInput";
@@ -8,6 +9,9 @@ export function ChatPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const queryClient = useQueryClient();
   const chatQueryKey = ["chat", projectId];
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const wasBusyRef = useRef(false);
 
   const { data: chat, isLoading } = useQuery({
     queryKey: chatQueryKey,
@@ -47,8 +51,22 @@ export function ChatPage() {
   const isBusy = isPending;
   const hasMessages = (chat?.messages.length ?? 0) > 0;
 
+  // Devolve o foco ao campo quando a resposta termina (sucesso ou erro).
+  // Só em dispositivos com mouse: no celular, reabrir o teclado a cada
+  // resposta atrapalharia a leitura.
+  useEffect(() => {
+    if (wasBusyRef.current && !isBusy) {
+      if (window.matchMedia("(pointer: fine)").matches) {
+        containerRef.current
+          ?.querySelector<HTMLElement>('textarea, input[type="text"]')
+          ?.focus();
+      }
+    }
+    wasBusyRef.current = isBusy;
+  }, [isBusy]);
+
   return (
-    <div className="relative h-full">
+    <div ref={containerRef} className="relative h-full">
       <div className="h-full overflow-y-auto pt-16 pb-36">
         {isLoading ? (
           <p className="pt-10 text-center text-sm text-[var(--text-secondary)]">Carregando…</p>

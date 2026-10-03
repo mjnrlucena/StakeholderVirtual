@@ -15,7 +15,7 @@ import { Role } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 async function main() {
-  const hashedPassword = await bcrypt.hash("password123", 10);
+  const hashedPassword = await bcrypt.hash("supersecret123", 10);
 
   await prisma.user.upsert({
     where: { email: "superadmin@gmail.com" },
@@ -29,7 +29,8 @@ async function main() {
     },
   });
 
-  console.log("Superadmin cadastrado com sucesso!");
+  console.log("Superadmin cadastrado: superadmin@gmail.com (troque a senha em produção).");
+  console.log("Crie as turmas pelo hub (login como superadmin) antes de cadastrar alunos.");
 
   const pdfsDir = path.join(__dirname, "..", "..", "pdfs");
   

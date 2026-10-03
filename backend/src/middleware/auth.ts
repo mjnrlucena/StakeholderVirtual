@@ -13,7 +13,7 @@ declare global {
 }
 
 export function requireSuperAdmin(req: Request, res: Response, next: NextFunction) {
-  if (!req.user || req.user.role !== "SUPERADMIN") {
+  if (!req.user || req.user.role !== Role.SUPERADMIN) {
     throw new HttpError(403, "Acesso permitido apenas para SuperAdmin");
   }
   next();
@@ -35,9 +35,20 @@ export function requireAuth(req: Request, _res: Response, next: NextFunction) {
   }
 }
 
-export function requireAdmin(req: Request, _res: Response, next: NextFunction) {
-  if (!req.user ||(req.user?.role !== Role.ADMIN && req.user?.role !== "SUPERADMIN")) {
-    throw new HttpError(403, "Acesso restrito a administradores");
+// Quem entra no hub: professor, gestor e superadmin.
+export function requireStaff(req: Request, _res: Response, next: NextFunction) {
+  const role = req.user?.role;
+  if (role !== Role.PROFESSOR && role !== Role.GESTOR && role !== Role.SUPERADMIN) {
+    throw new HttpError(403, "Acesso restrito à equipe");
+  }
+  next();
+}
+
+// Professor e superadmin: projetos (PDFs) e dashboard de logs. O gestor não entra.
+export function requireProfessor(req: Request, _res: Response, next: NextFunction) {
+  const role = req.user?.role;
+  if (role !== Role.PROFESSOR && role !== Role.SUPERADMIN) {
+    throw new HttpError(403, "Acesso restrito a professores");
   }
   next();
 }

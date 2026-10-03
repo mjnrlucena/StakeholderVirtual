@@ -4,35 +4,66 @@ import { z } from "zod";
 // atrito com o modo de teste automático do próprio pacote no ESM/CJS misto.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const pdfParse = require("pdf-parse");
+import { Role } from "@prisma/client";
 import { prisma } from "../prisma";
 import { HttpError } from "../middleware/errorHandler";
-import { uploadReportPdf } from "../services/storage.service";
-import { askAdkAgent, updateAdkProjectIndex } from "../services/adkClient.service";
+import { deleteReportPdf, uploadReportPdf } from "../services/storage.service";
+import {
+  getLogFilterOptions,
+  getSessionLogs,
+  logFiltersSchema,
+  searchLogs,
+  summarizeLogs,
+} from "../services/logSearch.service";
 
 const createProjectSchema = z.object({
   title: z.string().trim().min(1),
   description: z.string().trim().optional(),
 });
 
-const addAdminSchema = z.object({
+const promoteSchema = z.object({
   email: z.string().email("E-mail inválido"),
+  role: z.enum([Role.PROFESSOR, Role.GESTOR, Role.ALUNO]),
 });
 
-export async function addAdmin(req: Request, res: Response) {
-  const { email } = addAdminSchema.parse(req.body);
+// Só o superadmin chama (ver rota). Define o papel de um usuário já
+// cadastrado: professor, gestor ou volta para aluno. O superadmin em si
+// não pode ser alterado por aqui.
+export async function promoteUser(req: Request, res: Response) {
+  const { email, role } = promoteSchema.parse(req.body);
 
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user) {
     throw new HttpError(404, "Usuário não encontrado com este e-mail");
   }
+  if (user.role === Role.SUPERADMIN) {
+    throw new HttpError(403, "O papel de um SuperAdmin não pode ser alterado");
+  }
 
   const updatedUser = await prisma.user.update({
     where: { email },
-    data: { role: "ADMIN" },
-    select: { id: true, email: true, role: true },
+    data: { role },
+    select: { id: true, role: true, turma: { select: { id: true, nome: true } } },
   });
 
-  res.json({ message: "Administrador adicionado com sucesso", user: updatedUser });
+  // O papel vai dentro do access token, então vale para a pessoa no
+  // próximo refresh (até 15 min) ou no próximo login.
+  res.json({ message: "Papel atualizado com sucesso", user: updatedUser });
+}
+
+// Apaga o projeto e, em cascata, os chats, mensagens e perguntas não
+// respondidas dele. Os logs de conversas NÃO são apagados: guardam o título
+// do projeto como snapshot e continuam no dashboard.
+export async function deleteProject(req: Request, res: Response) {
+  const { id } = req.params;
+
+  const project = await prisma.project.findUnique({ where: { id }, select: { id: true, pdfPath: true } });
+  if (!project) throw new HttpError(404, "Projeto não encontrado");
+
+  await prisma.project.delete({ where: { id } });
+  await deleteReportPdf(project.pdfPath);
+
+  res.status(204).send();
 }
 
 export async function listAdminProjects(_req: Request, res: Response) {
@@ -67,7 +98,8 @@ export async function listUnansweredQuestions(req: Request, res: Response) {
     where: onlyPending ? { reviewed: false } : undefined,
     include: {
       project: { select: { id: true, title: true } },
-      user: { select: { id: true, email: true } },
+      // Só a turma: o hub não expõe e-mail nem papel de quem perguntou.
+      user: { select: { id: true, turma: { select: { id: true, nome: true } } } },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -86,7 +118,6 @@ export async function answerQuestion(req: Request, res: Response) {
   const question = await prisma.unansweredQuestion.findUnique({ where: { id } });
   if (!question) throw new HttpError(404, "Pergunta não encontrada");
 
-  // Formatação mais natural para o RAG (veja o ponto 2 abaixo)
   const complemento = `\n\nInformações adicionais do stakeholder:\nSobre "${question.question}": ${answer}`;
   const project = await prisma.project.findUniqueOrThrow({ where: { id: question.projectId } });
 
@@ -103,14 +134,6 @@ export async function answerQuestion(req: Request, res: Response) {
     }),
   ]);
 
-  // 🚀 NOTIFIQUE O SERVIÇO DE IA PARA REINDEXAR / ATUALIZAR OS VETORES
-  if (typeof updateAdkProjectIndex === "function") {
-    await updateAdkProjectIndex({
-      projectId: question.projectId,
-      reportText: newReportText,
-    });
-  }
-
   res.json(updated[1]);
 }
 
@@ -119,4 +142,25 @@ export async function deleteQuestion(req: Request, res: Response) {
   const { id } = req.params;
   await prisma.unansweredQuestion.delete({ where: { id } });
   res.status(204).send();
+}
+// --- Logs de conversas (professor / superadmin) -------------------------------
+
+export async function listLogs(req: Request, res: Response) {
+  const filters = logFiltersSchema.parse(req.query);
+  res.json(await searchLogs(filters));
+}
+
+export async function logsSummary(req: Request, res: Response) {
+  const filters = logFiltersSchema.parse(req.query);
+  res.json(await summarizeLogs(filters));
+}
+
+export async function logsFilterOptions(_req: Request, res: Response) {
+  res.json(await getLogFilterOptions());
+}
+
+export async function logSession(req: Request, res: Response) {
+  const logs = await getSessionLogs(req.params.sessionId);
+  if (logs.length === 0) throw new HttpError(404, "Conversa não encontrada");
+  res.json(logs);
 }

@@ -1,8 +1,9 @@
 import { createBrowserRouter } from "react-router-dom";
 import App from "@/App";
-import { RequireAdmin } from "@/components/auth/RequireAdmin";
+import { RequireAdmin, RequireProfessor } from "@/components/auth/RequireAdmin";
 import { RequireAuth } from "@/components/auth/RequireAuth";
 import { AdminDashboardPage } from "@/pages/Admin/AdminDashboardPage";
+import { LogsDashboardPage } from "@/pages/Admin/logs/LogsDashboardPage";
 import { ChatPage } from "@/pages/ChatPage/ChatPage";
 import { LoginPage } from "@/pages/Login/LoginPage";
 import { NotFoundPage } from "@/pages/NotFound/NotFoundPage";
@@ -25,7 +26,13 @@ export const router = createBrowserRouter([
 
           {
             element: <RequireAdmin />,
-            children: [{ path: "admin", element: <AdminDashboardPage /> }],
+            children: [
+              { path: "admin", element: <AdminDashboardPage /> },
+              {
+                element: <RequireProfessor />,
+                children: [{ path: "admin/logs", element: <LogsDashboardPage /> }],
+              },
+            ],
           },
         ],
       },
