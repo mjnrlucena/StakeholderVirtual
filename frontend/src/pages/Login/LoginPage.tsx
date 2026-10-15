@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { AuthLayout } from "@/components/auth/AuthLayout";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { useAuthStore } from "@/store/useAuthStore";
 
 export function LoginPage() {
@@ -39,14 +40,16 @@ export function LoginPage() {
           onChange={(e) => setEmail(e.target.value)}
           className="rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
         />
-        <input
-          type="password"
+        <PasswordInput
           required
           placeholder="Senha"
+          autoComplete="current-password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
         />
+        <Link to="/esqueci-senha" className="-mt-1 self-end text-xs text-[var(--accent)]">
+          Esqueci minha senha
+        </Link>
 
         {error && <p className="text-xs text-[var(--danger)]">{error}</p>}
 

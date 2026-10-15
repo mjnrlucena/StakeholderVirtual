@@ -1,24 +1,22 @@
 import { Request, Response } from "express";
 import { z } from "zod";
-import { randomUUID } from "node:crypto";
 import { LogKind, MessageRole } from "@prisma/client";
 import { prisma } from "../prisma";
 import { HttpError } from "../middleware/errorHandler";
 import { askAdkAgent, askAdkFeedback, AdkHistoryTurn, warmAdk } from "../services/adkClient.service";
 import { getLogActor, recordInteraction } from "../services/interactionLog.service";
+import { findVisibleProject } from "./projects.controller";
 
 const HISTORY_LIMIT = 20; // últimas N mensagens mandadas como histórico pro agente
 
-async function getOrCreateChat(userId: string, projectId: string) {
-  const project = await prisma.project.findUnique({ where: { id: projectId } });
-  if (!project) throw new HttpError(404, "Projeto não encontrado");
+const sessionSelect = { id: true, number: true, name: true, createdAt: true } as const;
 
-  const chat = await prisma.chat.upsert({
-    where: { userId_projectId: { userId, projectId } },
-    update: {},
-    create: { userId, projectId },
-  });
-
+// Sessão (Chat) do próprio usuário, num projeto que ele pode ver.
+async function loadSession(req: Request) {
+  const { projectId, chatId } = req.params;
+  const project = await findVisibleProject(req.user!, projectId);
+  const chat = await prisma.chat.findFirst({ where: { id: chatId, projectId, userId: req.user!.id } });
+  if (!chat) throw new HttpError(404, "Sessão não encontrada");
   return { chat, project };
 }
 
@@ -70,10 +68,56 @@ async function requestFeedbackLogged(params: {
   }
 }
 
-export async function getChat(req: Request, res: Response) {
+export async function listSessions(req: Request, res: Response) {
   warmAdk();
   const { projectId } = req.params;
-  const { chat } = await getOrCreateChat(req.user!.id, projectId);
+  await findVisibleProject(req.user!, projectId);
+  const sessions = await prisma.chat.findMany({
+    where: { projectId, userId: req.user!.id },
+    select: sessionSelect,
+    orderBy: { createdAt: "desc" },
+  });
+  res.json(sessions);
+}
+
+export async function createSession(req: Request, res: Response) {
+  const { projectId } = req.params;
+  const userId = req.user!.id;
+  await findVisibleProject(req.user!, projectId);
+
+  // ponytail: duas criações simultâneas podem repetir o número; é só o rótulo padrão.
+  const { _max } = await prisma.chat.aggregate({ where: { projectId, userId }, _max: { number: true } });
+  const session = await prisma.chat.create({
+    data: { projectId, userId, number: (_max.number ?? 0) + 1 },
+    select: sessionSelect,
+  });
+  res.status(201).json(session);
+}
+
+const renameSchema = z.object({ name: z.string().trim().max(80, "Nome muito longo (máx. 80)") });
+
+// Nome vazio volta para o padrão "Sessão N".
+export async function renameSession(req: Request, res: Response) {
+  const { name } = renameSchema.parse(req.body);
+  const { chat } = await loadSession(req);
+  const session = await prisma.chat.update({
+    where: { id: chat.id },
+    data: { name: name || null },
+    select: sessionSelect,
+  });
+  res.json(session);
+}
+
+// Apaga a sessão e as mensagens dela; os logs no dashboard continuam.
+export async function deleteSession(req: Request, res: Response) {
+  const { chat } = await loadSession(req);
+  await prisma.chat.delete({ where: { id: chat.id } });
+  res.status(204).send();
+}
+
+export async function getSession(req: Request, res: Response) {
+  warmAdk();
+  const { chat } = await loadSession(req);
 
   const messages = await prisma.message.findMany({
     where: { chatId: chat.id },
@@ -86,12 +130,8 @@ export async function getChat(req: Request, res: Response) {
 const messageSchema = z.object({ pergunta: z.string().trim().min(1) });
 
 export async function sendMessage(req: Request, res: Response) {
-  const { projectId } = req.params;
   const { pergunta } = messageSchema.parse(req.body);
-  const [{ chat, project }, actor] = await Promise.all([
-    getOrCreateChat(req.user!.id, projectId),
-    getLogActor(req.user!.id),
-  ]);
+  const [{ chat, project }, actor] = await Promise.all([loadSession(req), getLogActor(req.user!.id)]);
 
   const isSair = pergunta.trim().toLowerCase() === "sair";
 
@@ -185,7 +225,7 @@ export async function sendMessage(req: Request, res: Response) {
     coveredByReport
       ? Promise.resolve()
       : prisma.unansweredQuestion.create({
-          data: { projectId, userId: req.user!.id, question: pergunta },
+          data: { projectId: project.id, userId: req.user!.id, question: pergunta, sessionId: chat.sessionId },
         }),
   ]);
 
@@ -204,51 +244,4 @@ export async function sendMessage(req: Request, res: Response) {
   });
 
   res.json({ resposta: stakeholderMessage.content, grounded, dataHora: stakeholderMessage.createdAt });
-}
-
-export async function sendFeedback(req: Request, res: Response) {
-  const { projectId } = req.params;
-  const { chat, project } = await getOrCreateChat(req.user!.id, projectId);
-  const actor = await getLogActor(req.user!.id);
-
-  const messages = await prisma.message.findMany({
-    where: { chatId: chat.id },
-    orderBy: { createdAt: "asc" },
-  });
-
-  const history = toAdkHistory(messages);
-  if (history.length === 0) {
-    throw new HttpError(400, "Ainda não há perguntas nessa entrevista para avaliar");
-  }
-
-  const feedbackText = await requestFeedbackLogged({
-    history,
-    actor,
-    chat,
-    project,
-    prompt: "(feedback solicitado pelo botão)",
-  });
-
-  const feedbackMessage = await prisma.message.create({
-    data: { chatId: chat.id, role: MessageRole.FEEDBACK, content: feedbackText },
-  });
-
-  res.json({ resposta: feedbackMessage.content, dataHora: feedbackMessage.createdAt });
-}
-
-export async function resetChat(req: Request, res: Response) {
-  const { projectId } = req.params;
-  const { chat } = await getOrCreateChat(req.user!.id, projectId);
-
-  // Apaga as mensagens do chat atual — o registro do Chat continua o
-  // mesmo (é o "slot" único do usuário para esse projeto), mas some toda
-  // a memória anterior, exatamente como pedido.
-  // O sessionId muda para que os logs da próxima conversa não se misturem
-  // com os da anterior (os logs em si nunca são apagados).
-  await prisma.$transaction([
-    prisma.message.deleteMany({ where: { chatId: chat.id } }),
-    prisma.chat.update({ where: { id: chat.id }, data: { sessionId: randomUUID() } }),
-  ]);
-
-  res.json({ ok: true });
 }

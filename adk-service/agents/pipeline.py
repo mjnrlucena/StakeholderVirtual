@@ -33,6 +33,9 @@ from google.genai import types
 
 APP_NAME = "stakeholder-virtual"
 MODEL_NAME = os.getenv("ADK_MODEL", "openai/gpt-4o-mini")  # LiteLLM -> usa OPENAI_API_KEY
+# O verificador pode usar um modelo mais forte que o da persona (sem a
+# variável, usa o mesmo). Ex.: ADK_VERIFIER_MODEL=openai/gpt-4.1-mini
+VERIFIER_MODEL_NAME = os.getenv("ADK_VERIFIER_MODEL", MODEL_NAME)
 
 PERSONA_INSTRUCTION = """
 Você é um stakeholder virtual que representa um cliente real em uma entrevista de
@@ -47,6 +50,10 @@ Regras de estilo:
 - Não revele todos os detalhes de uma vez — deixe o estudante investigar aos poucos.
 - Se o estudante sugerir algo plausível e coerente com o relatório, aceite ou
   complemente de forma natural.
+- Se a pergunta tiver duas interpretações razoáveis que levariam a respostas
+  diferentes, ou juntar várias perguntas numa só, não chute: peça para o
+  estudante esclarecer, com naturalidade e no personagem. Use isso só quando
+  for realmente necessário, não a cada pergunta.
 
 Regra inegociável: use SOMENTE as informações do RELATÓRIO e do HISTÓRICO abaixo.
 Se a pergunta pedir algo que não está no relatório, diga com naturalidade que não
@@ -65,6 +72,20 @@ PERGUNTA ATUAL DO ESTUDANTE:
 Responda apenas com a fala do stakeholder, sem nenhum comentário fora do personagem.
 """.strip()
 
+# Histórico no verificador: deixa ele checar se a resposta contradiz algo que o
+# stakeholder já disse. Para voltar ao comportamento antigo (verificador vendo
+# só o relatório), descomente a linha `VERIFIER_HISTORY_SECTION = ""` abaixo.
+VERIFIER_HISTORY_SECTION = """
+HISTÓRICO DA CONVERSA ATÉ AGORA:
+{history}
+
+Use o histórico só para checar coerência: se a RESPOSTA RASCUNHO contradiz algo
+que o stakeholder já disse antes, e o RELATÓRIO não dá razão à resposta nova,
+trate como não fiel (`grounded=false`). A fonte da verdade continua sendo o
+RELATÓRIO — o histórico nunca torna fiel algo que o relatório não sustenta.
+"""
+# VERIFIER_HISTORY_SECTION = ""
+
 VERIFIER_INSTRUCTION = """
 Você é um verificador de fidelidade factual. Sua tarefa tem duas partes:
 
@@ -81,11 +102,16 @@ Você é um verificador de fidelidade factual. Sua tarefa tem duas partes:
 RELATÓRIO:
 {report_text}
 
+""" + VERIFIER_HISTORY_SECTION + """
 PERGUNTA DO ESTUDANTE:
 {question}
 
 RESPOSTA RASCUNHO DO STAKEHOLDER:
 {draft_answer}
+
+Se a resposta rascunho for apenas um pedido de esclarecimento ao estudante
+(sem afirmar nada sobre o sistema), use `grounded=true` e
+`covered_by_report=true` — não é uma pergunta sem cobertura do relatório.
 
 Se a resposta rascunho for fiel ao relatório: `grounded=true` e deixe
 `final_answer` como string vazia ("") — a resposta rascunho será usada como
@@ -138,17 +164,22 @@ class VerificationResult(BaseModel):
 # ==============================================================================
 
 _llm_model = LiteLlm(model=MODEL_NAME)
+# Temperatura baixa: a mesma pergunta recebe respostas consistentes. O
+# verificador fica em 0 (é um julgamento, não texto criativo); drop_params
+# evita erro se o modelo escolhido não aceitar temperature.
+_persona_model = LiteLlm(model=MODEL_NAME, temperature=0.3)
+_verifier_model = LiteLlm(model=VERIFIER_MODEL_NAME, temperature=0, drop_params=True)
 
 _persona_agent = LlmAgent(
     name="stakeholder_persona",
-    model=_llm_model,
+    model=_persona_model,
     instruction=PERSONA_INSTRUCTION,
     output_key="draft_answer",
 )
 
 _verifier_agent = LlmAgent(
     name="fidelity_verifier",
-    model=_llm_model,
+    model=_verifier_model,
     instruction=VERIFIER_INSTRUCTION,
     output_schema=VerificationResult,
     output_key="verification",

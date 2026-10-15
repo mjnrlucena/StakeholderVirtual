@@ -7,11 +7,15 @@ export interface Project {
 
 export interface AdminProject extends Project {
   pdfPath: string;
+  /** Turmas que podem ver o projeto. */
+  turmaIds: string[];
 }
 
 export interface UnansweredQuestion {
   id: string;
   question: string;
+  /** Sessão do chat em que a pergunta apareceu; null nas perguntas antigas. */
+  sessionId: string | null;
   answer: string | null;
   createdAt: string;
   answeredAt: string | null;

@@ -3,7 +3,7 @@ import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { conversaDoLog } from "@/services/api";
 import { ROLE_LABEL } from "@/lib/roles";
-import type { LogEntry } from "@/types/logs";
+import type { LogEntry, SessionLog } from "@/types/logs";
 import { formatDateTime, formatLatency } from "./format";
 import { highlight } from "./highlight";
 
@@ -87,18 +87,30 @@ export function LogItem({ log, generalTerms, promptTerms, responseTerms }: Props
             {showSession ? "Ocultar conversa" : "Ver conversa completa"}
           </button>
 
-          {showSession && <SessionView sessionId={log.sessionId} currentId={log.id} />}
+          {showSession && (
+            <SessionView
+              queryKey={["log-session", log.sessionId]}
+              load={() => conversaDoLog(log.sessionId)}
+              isCurrent={(entry) => entry.id === log.id}
+            />
+          )}
         </div>
       )}
     </li>
   );
 }
 
-function SessionView({ sessionId, currentId }: { sessionId: string; currentId: string }) {
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ["log-session", sessionId],
-    queryFn: () => conversaDoLog(sessionId),
-  });
+export function SessionView({
+  queryKey,
+  load,
+  isCurrent,
+}: {
+  queryKey: unknown[];
+  load: () => Promise<SessionLog[]>;
+  /** Destaca a interação de onde a conversa foi aberta. */
+  isCurrent: (entry: SessionLog) => boolean;
+}) {
+  const { data, isLoading, isError } = useQuery({ queryKey, queryFn: load });
 
   if (isLoading) return <p className="mt-3 text-xs text-[var(--text-secondary)]">Carregando conversa…</p>;
   if (isError || !data) return <p className="mt-3 text-xs text-[var(--danger)]">Não foi possível carregar a conversa.</p>;
@@ -109,7 +121,7 @@ function SessionView({ sessionId, currentId }: { sessionId: string; currentId: s
         <li
           key={entry.id}
           className={`rounded-xl border px-3 py-2 ${
-            entry.id === currentId ? "border-[var(--accent)]" : "border-[var(--border)]"
+            isCurrent(entry) ? "border-[var(--accent)]" : "border-[var(--border)]"
           } bg-[var(--background)]`}
         >
           <p className="text-[11px] text-[var(--text-secondary)]">

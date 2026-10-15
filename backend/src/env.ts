@@ -32,4 +32,18 @@ export const env = {
   adkServiceUrl: required("ADK_SERVICE_URL"),
   corsOrigin: required("CORS_ORIGIN"),
   cookieSecure: process.env.COOKIE_SECURE === "true",
+
+  // Endereço do site usado nos links dos e-mails (cai no CORS_ORIGIN se vazio).
+  frontendUrl: (process.env.FRONTEND_URL || required("CORS_ORIGIN")).replace(/\/+$/, ""),
+  passwordResetTtlMin: Number(process.env.PASSWORD_RESET_TTL_MIN ?? 30),
+
+  // SMTP. Sem MAIL_HOST, o link de redefinição só aparece no console (dev).
+  mail: {
+    host: process.env.MAIL_HOST || "",
+    port: Number(process.env.MAIL_PORT ?? 465),
+    secure: process.env.MAIL_SECURE !== "false",
+    user: process.env.MAIL_USER || "",
+    password: process.env.MAIL_PASSWORD || "",
+    from: process.env.MAIL_FROM || process.env.MAIL_USER || "",
+  },
 };

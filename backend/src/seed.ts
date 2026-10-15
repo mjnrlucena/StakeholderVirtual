@@ -14,22 +14,29 @@ import { uploadReportPdf } from "./services/storage.service";
 import { Role } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
+const DEFAULT_SUPERADMIN_PASSWORD = "supersecret123";
+
 async function main() {
-  const hashedPassword = await bcrypt.hash("supersecret123", 10);
+  const superadminEmail = process.env.SEED_SUPERADMIN_EMAIL || "superadmin@gmail.com";
+  const superadminPassword = process.env.SEED_SUPERADMIN_PASSWORD || DEFAULT_SUPERADMIN_PASSWORD;
+  if (process.env.NODE_ENV === "production" && superadminPassword === DEFAULT_SUPERADMIN_PASSWORD) {
+    throw new Error("Defina SEED_SUPERADMIN_PASSWORD antes de rodar o seed em produção.");
+  }
+  const hashedPassword = await bcrypt.hash(superadminPassword, 10);
 
   await prisma.user.upsert({
-    where: { email: "superadmin@gmail.com" },
+    where: { email: superadminEmail },
     update: {
       role: Role.SUPERADMIN,
     },
     create: {
-      email: "superadmin@gmail.com",
+      email: superadminEmail,
       passwordHash: hashedPassword,
       role: Role.SUPERADMIN,
     },
   });
 
-  console.log("Superadmin cadastrado: superadmin@gmail.com (troque a senha em produção).");
+  console.log(`Superadmin cadastrado: ${superadminEmail}`);
   console.log("Crie as turmas pelo hub (login como superadmin) antes de cadastrar alunos.");
 
   const pdfsDir = path.join(__dirname, "..", "..", "pdfs");

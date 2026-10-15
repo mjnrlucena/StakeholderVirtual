@@ -18,3 +18,14 @@ export interface SendMessageResponse {
   grounded: boolean | null;
   dataHora: string;
 }
+
+export interface ChatSession {
+  id: string;
+  number: number;
+  name: string | null;
+  createdAt: string;
+}
+
+export function sessionLabel(s: Pick<ChatSession, "number" | "name">): string {
+  return s.name ?? `Sessão ${s.number}`;
+}

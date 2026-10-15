@@ -7,6 +7,9 @@ import { authRouter } from "./routes/auth.routes";
 import { projectsRouter } from "./routes/projects.routes";
 import { adminRouter } from "./routes/admin.routes";
 import { turmasRouter } from "./routes/turmas.routes";
+import { requireAuth } from "./middleware/auth";
+import { asyncHandler } from "./utils/asyncHandler";
+import { updateProfile } from "./controllers/auth.controller";
 
 export const app = express();
 
@@ -25,5 +28,8 @@ app.use("/auth", authRouter);
 app.use("/projects", projectsRouter);
 app.use("/turmas", turmasRouter);
 app.use("/admin", adminRouter);
+// Fora de /auth/ de propósito: o frontend só tenta renovar o token (refresh)
+// em 401 de rotas que não são de /auth/.
+app.patch("/perfil", requireAuth, asyncHandler(updateProfile));
 
 app.use(errorHandler);

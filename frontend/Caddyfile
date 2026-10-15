@@ -1,6 +1,15 @@
 :80 {
     root * /srv
     encode gzip
+
+    # index.html sempre revalida: depois de um deploy o navegador pega o
+    # bundle novo sem precisar de Ctrl+F5. Os assets têm hash no nome, então
+    # podem ficar em cache "para sempre".
+    @assets path /assets/*
+    header @assets Cache-Control "public, max-age=31536000, immutable"
+    @pagina not path /assets/*
+    header @pagina Cache-Control "no-cache"
+
     try_files {path} /index.html
     file_server
 }

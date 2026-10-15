@@ -1,5 +1,5 @@
 import axios, { AxiosError } from "axios";
-import type { AuthUser, Role, Turma, TurmaRef } from "@/types/auth";
+import type { AuthUser, Role, Turma, TurmaComEquipes, TurmaRef, UsuarioAdmin } from "@/types/auth";
 import type {
   LogFilterOptions,
   LogParams,
@@ -7,7 +7,7 @@ import type {
   LogsSummary,
   SessionLog,
 } from "@/types/logs";
-import type { ChatResponse, SendMessageResponse } from "@/types/chat";
+import type { ChatResponse, ChatSession, SendMessageResponse } from "@/types/chat";
 import type { AdminProject, Project, UnansweredQuestion } from "@/types/project";
 
 /**
@@ -49,14 +49,22 @@ api.interceptors.response.use(
 
 // --- Auth ---------------------------------------------------------------
 
-export async function register(email: string, password: string, turmaId: string): Promise<AuthUser> {
-  const { data } = await api.post<AuthUser>("/auth/register", { email, password, turmaId });
+export interface RegisterInput {
+  nome: string;
+  email: string;
+  password: string;
+  turmaId: string;
+  equipeId?: string;
+}
+
+export async function register(input: RegisterInput): Promise<AuthUser> {
+  const { data } = await api.post<AuthUser>("/auth/register", input);
   return data;
 }
 
-// Pública: usada pelo select de turma na tela de cadastro.
-export async function listarTurmas(): Promise<TurmaRef[]> {
-  const { data } = await api.get<TurmaRef[]>("/turmas");
+// Pública: usada pelos selects de turma e equipe na tela de cadastro.
+export async function listarTurmas(): Promise<TurmaComEquipes[]> {
+  const { data } = await api.get<TurmaComEquipes[]>("/turmas");
   return data;
 }
 
@@ -65,8 +73,27 @@ export async function login(email: string, password: string): Promise<AuthUser> 
   return data;
 }
 
+export async function solicitarRedefinicaoSenha(email: string): Promise<void> {
+  await api.post("/auth/forgot-password", { email });
+}
+
+export async function redefinirSenha(token: string, password: string): Promise<void> {
+  await api.post("/auth/reset-password", { token, password });
+}
+
 export async function logout(): Promise<void> {
   await api.post("/auth/logout");
+}
+
+export async function atualizarMeuNome(nome: string): Promise<AuthUser> {
+  const { data } = await api.patch<AuthUser>("/perfil", { nome });
+  return data;
+}
+
+// Escolhe qual das turmas da pessoa vale nesta sessão (logs e projetos).
+export async function selecionarTurma(turmaId: string): Promise<AuthUser> {
+  const { data } = await api.patch<AuthUser>("/auth/turma", { turmaId });
+  return data;
 }
 
 export async function fetchMe(): Promise<AuthUser> {
@@ -81,27 +108,39 @@ export async function listarProjetos(): Promise<Project[]> {
   return data;
 }
 
-export async function obterChat(projectId: string): Promise<ChatResponse> {
-  const { data } = await api.get<ChatResponse>(`/projects/${projectId}/chat`);
+export async function listarSessoes(projectId: string): Promise<ChatSession[]> {
+  const { data } = await api.get<ChatSession[]>(`/projects/${projectId}/sessions`);
+  return data;
+}
+
+export async function criarSessao(projectId: string): Promise<ChatSession> {
+  const { data } = await api.post<ChatSession>(`/projects/${projectId}/sessions`);
+  return data;
+}
+
+/** Nome vazio volta para o padrão "Sessão N". */
+export async function renomearSessao(projectId: string, chatId: string, name: string): Promise<ChatSession> {
+  const { data } = await api.patch<ChatSession>(`/projects/${projectId}/sessions/${chatId}`, { name });
+  return data;
+}
+
+export async function removerSessao(projectId: string, chatId: string): Promise<void> {
+  await api.delete(`/projects/${projectId}/sessions/${chatId}`);
+}
+
+export async function obterChat(projectId: string, chatId: string): Promise<ChatResponse> {
+  const { data } = await api.get<ChatResponse>(`/projects/${projectId}/sessions/${chatId}`);
   return data;
 }
 
 export async function enviarPergunta(
   projectId: string,
+  chatId: string,
   pergunta: string,
 ): Promise<SendMessageResponse> {
-  const { data } = await api.post<SendMessageResponse>(`/projects/${projectId}/chat/message`, {
+  const { data } = await api.post<SendMessageResponse>(`/projects/${projectId}/sessions/${chatId}/message`, {
     pergunta,
   });
-  return data;
-}
-
-export async function reiniciarChat(projectId: string): Promise<void> {
-  await api.post(`/projects/${projectId}/chat/reset`);
-}
-
-export async function solicitarFeedback(projectId: string): Promise<SendMessageResponse> {
-  const { data } = await api.post<SendMessageResponse>(`/projects/${projectId}/chat/feedback`);
   return data;
 }
 
@@ -114,6 +153,10 @@ export async function listarProjetosAdmin(): Promise<AdminProject[]> {
 
 export async function removerProjeto(id: string): Promise<void> {
   await api.delete(`/admin/projects/${id}`);
+}
+
+export async function definirTurmasDoProjeto(id: string, turmaIds: string[]): Promise<void> {
+  await api.put(`/admin/projects/${id}/turmas`, { turmaIds });
 }
 
 export async function criarProjeto(params: {
@@ -144,6 +187,11 @@ export async function responderPergunta(id: string, answer: string): Promise<Una
 }
 
 // Descarta a pergunta sem gerar nenhum contexto novo.
+export async function contextoDaPergunta(id: string): Promise<SessionLog[]> {
+  const { data } = await api.get<SessionLog[]>(`/admin/unanswered-questions/${id}/context`);
+  return data;
+}
+
 export async function deletarPergunta(id: string): Promise<void> {
   await api.delete(`/admin/unanswered-questions/${id}`);
 }
@@ -167,6 +215,36 @@ export async function criarTurma(nome: string): Promise<TurmaRef> {
 
 export async function removerTurma(id: string): Promise<void> {
   await api.delete(`/admin/turmas/${id}`);
+}
+
+// --- Professor: equipes e cadastros -------------------------------------------
+
+export async function criarEquipe(turmaId: string, nome: string): Promise<TurmaRef> {
+  const { data } = await api.post<TurmaRef>(`/admin/turmas/${turmaId}/equipes`, { nome });
+  return data;
+}
+
+export async function renomearEquipe(id: string, nome: string): Promise<TurmaRef> {
+  const { data } = await api.patch<TurmaRef>(`/admin/equipes/${id}`, { nome });
+  return data;
+}
+
+export async function removerEquipe(id: string): Promise<void> {
+  await api.delete(`/admin/equipes/${id}`);
+}
+
+export async function listarUsuariosAdmin(): Promise<UsuarioAdmin[]> {
+  const { data } = await api.get<UsuarioAdmin[]>("/admin/usuarios");
+  return data;
+}
+
+export async function alterarTurmaDoUsuario(
+  id: string,
+  turmaId: string | null,
+  equipeId: string | null,
+  outras: { turmaId: string; equipeId: string | null }[],
+): Promise<void> {
+  await api.patch(`/admin/usuarios/${id}`, { turmaId, equipeId, outras });
 }
 
 // --- Professor: logs das conversas ---------------------------------------------

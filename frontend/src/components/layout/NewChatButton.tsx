@@ -1,22 +1,25 @@
 import { SquarePen } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { reiniciarChat } from "@/services/api";
+import { useNavigate } from "react-router-dom";
+import { criarSessao } from "@/services/api";
 
 interface NewChatButtonProps {
   projectId: string;
 }
 
 /**
- * Botão "novo chat" — agora escopado a um projeto: reinicia só o chat
- * daquele projeto (apaga as mensagens), não afeta os demais.
+ * Botão "nova sessão": cria outra sessão no projeto e entra nela. As
+ * anteriores continuam salvas na barra lateral de sessões.
  */
 export function NewChatButton({ projectId }: NewChatButtonProps) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   const { mutate, isPending } = useMutation({
-    mutationFn: () => reiniciarChat(projectId),
-    onSuccess: () => {
-      queryClient.setQueryData(["chat", projectId], (old: any) => ({ ...old, messages: [] }));
+    mutationFn: () => criarSessao(projectId),
+    onSuccess: (session) => {
+      queryClient.invalidateQueries({ queryKey: ["sessions", projectId] });
+      navigate(`/projetos/${projectId}/${session.id}`);
     },
   });
 
@@ -25,8 +28,8 @@ export function NewChatButton({ projectId }: NewChatButtonProps) {
       type="button"
       onClick={() => mutate()}
       disabled={isPending}
-      title="Novo chat (apaga as mensagens deste projeto)"
-      aria-label="Novo chat"
+      title="Nova sessão (as anteriores continuam salvas)"
+      aria-label="Nova sessão"
       className="icon-btn"
     >
       <SquarePen size={18} />

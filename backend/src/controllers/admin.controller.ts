@@ -68,10 +68,26 @@ export async function deleteProject(req: Request, res: Response) {
 
 export async function listAdminProjects(_req: Request, res: Response) {
   const projects = await prisma.project.findMany({
-    select: { id: true, title: true, description: true, pdfPath: true, createdAt: true },
+    select: { id: true, title: true, description: true, pdfPath: true, createdAt: true, turmas: { select: { id: true } } },
     orderBy: { createdAt: "desc" },
   });
-  res.json(projects);
+  res.json(projects.map(({ turmas, ...p }) => ({ ...p, turmaIds: turmas.map((t) => t.id) })));
+}
+
+const projectTurmasSchema = z.object({ turmaIds: z.array(z.string().min(1)) });
+
+// Define quais turmas veem o projeto (substitui a lista inteira).
+export async function setProjectTurmas(req: Request, res: Response) {
+  const { turmaIds } = projectTurmasSchema.parse(req.body);
+  const exists = await prisma.project.findUnique({ where: { id: req.params.id }, select: { id: true } });
+  if (!exists) throw new HttpError(404, "Projeto não encontrado");
+
+  const project = await prisma.project.update({
+    where: { id: req.params.id },
+    data: { turmas: { set: turmaIds.map((id) => ({ id })) } },
+    select: { turmas: { select: { id: true } } },
+  });
+  res.json({ turmaIds: project.turmas.map((t) => t.id) });
 }
 
 export async function createProject(req: Request, res: Response) {
@@ -157,6 +173,16 @@ export async function logsSummary(req: Request, res: Response) {
 
 export async function logsFilterOptions(_req: Request, res: Response) {
   res.json(await getLogFilterOptions());
+}
+
+// Conversa em que a pergunta não respondida apareceu (equipe inteira, inclusive gestor).
+export async function unansweredQuestionContext(req: Request, res: Response) {
+  const question = await prisma.unansweredQuestion.findUnique({
+    where: { id: req.params.id },
+    select: { sessionId: true },
+  });
+  if (!question?.sessionId) throw new HttpError(404, "Conversa não registrada para essa pergunta");
+  res.json(await getSessionLogs(question.sessionId));
 }
 
 export async function logSession(req: Request, res: Response) {

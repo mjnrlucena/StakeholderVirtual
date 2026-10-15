@@ -1,7 +1,9 @@
-import { ArrowLeft, BarChart3, LogOut, Shield } from "lucide-react";
+import { useState } from "react";
+import { ArrowLeft, BarChart3, LogOut, Shield, UserRound } from "lucide-react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAuthStore } from "@/store/useAuthStore";
 import { NewChatButton } from "./NewChatButton";
+import { ProfileNameModal } from "./ProfileNameModal";
 import { ThemeToggle } from "./ThemeToggle";
 import { isProfessor, isStaff } from "@/lib/roles";
 
@@ -9,8 +11,9 @@ import { isProfessor, isStaff } from "@/lib/roles";
  * Barra fixa no topo.
  * - Seta de voltar (fora da tela inicial): mesma função de clicar no título,
  *   leva para a escolha de projetos ("/").
- * - "Nova conversa" (só quando há um projeto aberto), atalho do hub de admin
- *   (equipe) e dashboard de logs (professor/superadmin), tema e sair (somente ícones).
+ * - "Nova sessão" (só quando há um projeto aberto; as anteriores ficam na
+ *   barra lateral do chat); atalho do hub de admin (equipe) e dashboard de logs
+ *   (professor/superadmin), tema e sair (somente ícones).
  */
 export function TopBar() {
   const user = useAuthStore((s) => s.user);
@@ -18,6 +21,7 @@ export function TopBar() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { projectId } = useParams<{ projectId?: string }>();
+  const [profileOpen, setProfileOpen] = useState(false);
 
   const showBack = Boolean(user) && pathname !== "/";
 
@@ -62,6 +66,17 @@ export function TopBar() {
           {user && (
             <button
               type="button"
+              onClick={() => setProfileOpen(true)}
+              title={`Nome de exibição: ${user.nome ?? "não definido"}`}
+              aria-label="Alterar nome de exibição"
+              className="icon-btn"
+            >
+              <UserRound size={17} />
+            </button>
+          )}
+          {user && (
+            <button
+              type="button"
               onClick={handleLogout}
               title="Sair"
               aria-label="Sair da conta"
@@ -72,6 +87,8 @@ export function TopBar() {
           )}
         </div>
       </div>
+
+      {profileOpen && <ProfileNameModal onClose={() => setProfileOpen(false)} />}
     </div>
   );
 }

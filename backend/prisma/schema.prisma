@@ -31,15 +31,36 @@ enum MessageRole {
 model User {
   id           String   @id @default(uuid())
   email        String   @unique
+  // Opcional só por causa das contas criadas antes de o cadastro pedir o nome.
+  nome         String?
   passwordHash String
   role         Role     @default(ALUNO)
   turmaId      String?
+  // Turma e equipe ativas: as escolhidas no login (quem tem mais de uma
+  // matrícula), usadas nos logs e na lista de projetos.
   turma        Turma?   @relation(fields: [turmaId], references: [id], onDelete: SetNull)
+  equipeId     String?
+  equipe       Equipe?  @relation(fields: [equipeId], references: [id], onDelete: SetNull)
   createdAt    DateTime @default(now())
 
   refreshTokens       RefreshToken[]
   chats               Chat[]
   unansweredQuestions UnansweredQuestion[]
+  matriculas          Matricula[]
+}
+
+// Turmas (e a equipe em cada uma) de quem estuda em mais de uma turma; só
+// professor/superadmin cadastram. Contas antigas têm só User.turmaId/equipeId,
+// então leia sempre a união dos dois (vinculosDoUsuario).
+model Matricula {
+  userId   String
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  turmaId  String
+  turma    Turma   @relation(fields: [turmaId], references: [id], onDelete: Cascade)
+  equipeId String?
+  equipe   Equipe? @relation(fields: [equipeId], references: [id], onDelete: SetNull)
+
+  @@id([userId, turmaId])
 }
 
 model Turma {
@@ -47,7 +68,24 @@ model Turma {
   nome      String   @unique
   createdAt DateTime @default(now())
 
-  users User[]
+  users      User[]
+  matriculas Matricula[]
+  equipes    Equipe[]
+  // Turmas que podem ver o projeto (professor/superadmin veem todos).
+  projects Project[]
+}
+
+model Equipe {
+  id        String   @id @default(uuid())
+  nome      String
+  turmaId   String
+  turma     Turma    @relation(fields: [turmaId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  users      User[]
+  matriculas Matricula[]
+
+  @@unique([turmaId, nome])
 }
 
 model RefreshToken {
@@ -72,25 +110,27 @@ model Project {
 
   chats               Chat[]
   unansweredQuestions UnansweredQuestion[]
+  turmas              Turma[]
 }
 
-// Um único chat "ativo" por usuário + projeto. "Reiniciar" apaga as
-// mensagens deste chat em vez de criar um novo registro.
+// Cada Chat é uma sessão de conversa do usuário com o projeto; ele pode ter
+// várias. Sem nome, a sessão aparece como "Sessão {number}".
 model Chat {
   id        String   @id @default(uuid())
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   projectId String
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  number    Int      @default(1)
+  name      String?
   createdAt DateTime @default(now())
 
-  // Muda a cada "Nova conversa": agrupa os logs de uma mesma conversa,
-  // mesmo depois de as mensagens do chat terem sido apagadas.
+  // Agrupa os logs da sessão; os logs sobrevivem mesmo se ela for apagada.
   sessionId String   @default(uuid())
 
   messages Message[]
 
-  @@unique([userId, projectId])
+  @@index([userId, projectId])
 }
 
 model Message {
@@ -114,6 +154,8 @@ model UnansweredQuestion {
   userId    String?
   user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   question  String
+  // Sessão do chat (Chat.sessionId) para mostrar o contexto no hub; null nas antigas.
+  sessionId String?
   createdAt DateTime @default(now())
 
   // Preenchidos quando o admin responde: a resposta é anexada ao

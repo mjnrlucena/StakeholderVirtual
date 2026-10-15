@@ -1,11 +1,13 @@
 import { useEffect } from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuthStore } from "@/store/useAuthStore";
+import { TurmaSelectPage } from "@/pages/TurmaSelect/TurmaSelectPage";
 
 export function RequireAuth() {
   const user = useAuthStore((s) => s.user);
   const isLoading = useAuthStore((s) => s.isLoading);
   const loadSession = useAuthStore((s) => s.loadSession);
+  const escolherTurma = useAuthStore((s) => s.escolherTurma);
   const location = useLocation();
 
   useEffect(() => {
@@ -18,6 +20,8 @@ export function RequireAuth() {
   if (!user) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
+
+  if (escolherTurma) return <TurmaSelectPage />;
 
   return <Outlet />;
 }

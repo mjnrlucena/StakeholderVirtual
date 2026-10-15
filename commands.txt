@@ -1,0 +1,242 @@
+================================================================
+STAKEHOLDER VIRTUAL - COMANDOS ÚTEIS
+Projeto: ~/apps/StackHolderTeste (na VPS)
+Domínios: stackholdervirtual.online  |  api.stackholdervirtual.online
+================================================================
+Todos os comandos "docker compose" são rodados dentro da pasta do projeto.
+Nunca use "docker compose down -v": o -v APAGA o banco e os PDFs.
+
+
+----------------------------------------------------------------
+1. ACESSO
+----------------------------------------------------------------
+ssh deploy@IP_DA_VPS
+cd ~/apps/StackHolderTeste
+
+# IPv4 / IPv6 da VPS
+curl -4 ifconfig.me; echo
+curl -6 ifconfig.me; echo
+
+
+----------------------------------------------------------------
+2. DOCKER COMPOSE (DIA A DIA)
+----------------------------------------------------------------
+docker compose ps                         # estado dos serviços
+docker compose config > /dev/null && echo "YAML ok"
+
+docker compose up -d --build              # subir/atualizar tudo
+docker compose up -d --build backend      # só um serviço
+docker compose restart backend            # reinicia (NÃO relê o env_file)
+docker compose up -d --force-recreate backend   # recria e relê backend.env
+docker compose stop                       # para tudo (mantém os dados)
+docker compose start                      # volta a rodar
+
+# Logs
+docker compose logs -f                    # todos
+docker compose logs -f backend            # um serviço
+docker compose logs --tail=100 backend adk-service
+docker compose logs --tail=50 caddy
+
+# Entrar num container
+docker compose exec backend sh
+docker compose exec postgres psql -U app -d stakeholder   # troque app/stakeholder pelo seu .env
+
+
+----------------------------------------------------------------
+3. DEPLOY MANUAL (O QUE O GITHUB ACTIONS FAZ)
+----------------------------------------------------------------
+cd ~/apps/StackHolderTeste
+git fetch origin main
+git reset --hard origin/main
+docker compose build
+docker compose run --rm -T backend npm run prisma:migrate
+docker compose up -d
+docker image prune -f
+docker compose ps
+
+
+----------------------------------------------------------------
+4. BANCO DE DADOS (PRISMA)
+----------------------------------------------------------------
+# Aplicar migrations (se existir backend/prisma/migrations)
+docker compose exec backend npm run prisma:migrate
+
+# Criar tabelas direto do schema (banco novo, sem migrations)
+docker compose exec backend npx prisma db push
+
+# Banco criado com "db push" (antes de as migrations irem pro git): o
+# "npm run prisma:migrate" marca a 20261002202542_init como aplicada sozinho
+# (backend/prisma/baseline.js) e depois aplica o resto. Nada manual.
+# Conferir (só leitura) o que falta no banco em relação ao schema:
+docker compose run --rm -T backend sh -c 'npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --script'
+
+# Backup antes de um deploy com migration (troque app/stakeholder pelo seu .env):
+docker compose exec -T postgres pg_dump -U app -d stakeholder > backup_$(date +%F_%H%M).sql
+
+# Seed (cria o superadmin e dados iniciais)
+docker compose exec backend npm run seed
+
+# Listar tabelas
+docker compose exec postgres psql -U app -d stakeholder -c '\dt'
+
+# Gerar a migration inicial 0_init (uma vez só, depois commitar a pasta)
+mkdir -p backend/prisma/migrations/0_init
+docker compose exec -T backend npx prisma migrate diff \
+  --from-empty --to-schema-datamodel prisma/schema.prisma --script \
+  > backend/prisma/migrations/0_init/migration.sql
+printf 'provider = "postgresql"\n' > backend/prisma/migrations/migration_lock.toml
+docker compose exec backend npx prisma migrate resolve --applied 0_init
+
+
+----------------------------------------------------------------
+5. SENHA DO SUPERADMIN
+----------------------------------------------------------------
+# Antes, confira o nome do campo da senha e o custo do bcrypt:
+grep -n -A15 "model User" backend/prisma/schema.prisma
+grep -n "bcrypt\|password" backend/src/seed.ts
+
+# Troca (ajuste "passwordHash" se o campo tiver outro nome).
+# A senha é digitada sem aparecer na tela e não vai para o histórico.
+read -rs -p "Nova senha: " NEW_PW; echo
+docker compose exec -e NEW_PW="$NEW_PW" backend node -e '
+const bcrypt = require("bcryptjs");
+const { PrismaClient } = require("@prisma/client");
+(async () => {
+  const prisma = new PrismaClient();
+  const hash = await bcrypt.hash(process.env.NEW_PW, 10);
+  const r = await prisma.user.updateMany({
+    where: { email: "superadmin@gmail.com" },
+    data: { passwordHash: hash },
+  });
+  console.log("atualizados:", r.count);
+  await prisma.$disconnect();
+})();
+'
+unset NEW_PW
+
+# Atenção: se o upsert do seed sobrescreve a senha no "update",
+# rodar "npm run seed" de novo volta a senha padrão.
+
+
+----------------------------------------------------------------
+6. BACKUP E RESTAURAÇÃO
+----------------------------------------------------------------
+mkdir -p ~/backups
+
+# Banco
+docker compose exec -T postgres pg_dump -U app stakeholder \
+  | gzip > ~/backups/db-$(date +%F).sql.gz
+
+# PDFs (volume "uploads"; o prefixo é o nome da pasta do projeto em minúsculas)
+docker run --rm -v stackholderteste_uploads:/data -v ~/backups:/backup alpine \
+  tar czf /backup/uploads-$(date +%F).tar.gz -C /data .
+
+# Copiar para o seu PC (rode no PC)
+scp deploy@IP_DA_VPS:~/backups/*.gz .
+
+# Restaurar o banco (apaga o conteúdo atual do banco!)
+gunzip -c ~/backups/db-AAAA-MM-DD.sql.gz | docker compose exec -T postgres psql -U app -d stakeholder
+
+# Restaurar os PDFs
+docker run --rm -v stackholderteste_uploads:/data -v ~/backups:/backup alpine \
+  tar xzf /backup/uploads-AAAA-MM-DD.tar.gz -C /data
+
+# Agendar backup diário às 03:00 (crontab -e)
+# 0 3 * * * cd ~/apps/StackHolderTeste && docker compose exec -T postgres pg_dump -U app stakeholder | gzip > ~/backups/db-$(date +\%F).sql.gz && find ~/backups -mtime +14 -delete
+
+
+----------------------------------------------------------------
+7. DNS E HTTPS
+----------------------------------------------------------------
+dig +short A stackholdervirtual.online @1.1.1.1
+dig +short A api.stackholdervirtual.online @1.1.1.1
+dig +short CNAME www.stackholdervirtual.online @1.1.1.1
+
+docker compose restart caddy              # força nova tentativa de certificado
+docker compose logs --tail=80 caddy
+
+curl -I https://stackholdervirtual.online
+curl -I https://api.stackholdervirtual.online     # 404 na raiz é normal; 502 não é
+
+
+----------------------------------------------------------------
+8. GIT
+----------------------------------------------------------------
+git status
+git pull
+git add <arquivos>                        # evite "git add -A" sem conferir
+git commit -m "mensagem"
+git push origin main
+
+# Conferir se segredos estão rastreados por engano (não deve listar nada)
+git ls-files | grep -E "(^|/)(\.env|backend\.env|adk\.env)$"
+
+# Descobrir qual regra do .gitignore está ignorando um arquivo
+git check-ignore -v caminho/do/arquivo
+
+
+----------------------------------------------------------------
+9. GITHUB ACTIONS (CHAVES E SECRETS)
+----------------------------------------------------------------
+# No seu PC: chave exclusiva do CI
+ssh-keygen -t ed25519 -f gh_actions_key -C "github-actions" -N ""
+
+# Instalar a chave PÚBLICA na VPS (usuário deploy)
+ssh-copy-id -i gh_actions_key.pub deploy@IP_DA_VPS
+
+# Testar
+ssh -i gh_actions_key deploy@IP_DA_VPS 'docker ps'
+
+# GitHub > Settings > Secrets and variables > Actions > New repository secret
+#   VPS_HOST    = IP da VPS
+#   VPS_USER    = deploy
+#   VPS_SSH_KEY = conteúdo COMPLETO de gh_actions_key (com BEGIN/END)
+# Depois apague a chave privada do PC, se não for mais usar.
+
+
+----------------------------------------------------------------
+10. MANUTENÇÃO DA VPS
+----------------------------------------------------------------
+df -h                                     # espaço em disco
+free -h                                   # memória
+docker system df                          # espaço usado pelo Docker
+docker image prune -f                     # remove imagens órfãs
+docker builder prune -f                   # limpa cache de build
+
+sudo apt update && sudo apt upgrade -y
+sudo reboot                               # depois: docker compose ps
+
+sudo ufw status
+sudo ufw allow OpenSSH && sudo ufw allow 80/tcp && sudo ufw allow 443/tcp && sudo ufw enable
+
+
+----------------------------------------------------------------
+11. PROBLEMAS COMUNS
+----------------------------------------------------------------
+# Backend reiniciando em loop -> veja o log; geralmente variável ausente
+docker compose logs --tail=50 backend
+cat backend/src/env.ts                    # lista as variáveis obrigatórias
+
+# 502 no Caddy -> o serviço de destino caiu
+docker compose ps
+docker compose logs --tail=50 backend frontend
+
+# Build do frontend com "Killed" -> falta memória; criar swap
+sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile
+sudo mkswap /swapfile && sudo swapon /swapfile
+
+# Alterou backend.env e nada mudou -> restart não relê; recrie
+docker compose up -d --force-recreate backend
+
+# "permission denied" no docker -> saia e entre de novo no SSH
+# (o grupo docker só vale em sessões novas)
+
+----------------------------------------------------------------
+12. SOLUÇÃO DE PROBLEMA EM SEED DE PROJETOS
+----------------------------------------------------------------
+
+docker compose exec backend find /app/uploads -type f -exec ls -la {} \;
+
+set -a; . ./.env; set +a
+docker compose exec postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -c 'SELECT title, "pdfPath", length("reportText") AS chars FROM "Project" ORDER BY title;'
